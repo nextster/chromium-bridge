@@ -13,9 +13,11 @@ Requirements:
 - Arc, Chrome, Chromium, Brave, Edge, or Vivaldi
 - Codex CLI, if the Codex plugin is wanted
 
-Download or clone this repository, then run:
+Clone this repository, then run:
 
 ```bash
+git clone https://github.com/nextster/chromium-sidecar.git
+cd chromium-sidecar
 npm run setup
 ```
 
