@@ -1,0 +1,12 @@
+{
+  "name": "chromium-sidecar-native-host",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sidecar": "node src/cli.mjs",
+    "install-host": "node src/install.mjs",
+    "uninstall-host": "node src/install.mjs --uninstall",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "chromium-sidecar",
+  "version": "0.4.0",
+  "description": "Control an authenticated Chromium browser through a local Native Messaging sidecar.",
+  "author": {
+    "name": "Artem"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Chromium Sidecar",
+    "shortDescription": "Control an authenticated Chromium browser",
+    "longDescription": "Inspect and operate Chromium tabs, run page scripts, capture screenshots, record network traffic, and use optional browser-specific providers such as Arc Spaces.",
+    "developerName": "Artem",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Inspect the active browser tab.",
+      "Use Chromium Sidecar to complete this browser workflow.",
+      "Capture and explain this page's API calls."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

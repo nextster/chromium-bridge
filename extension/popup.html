@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Chromium Sidecar</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <h1>Chromium Sidecar</h1>
+      <div id="status">checking...</div>
+    </header>
+
+    <section>
+      <div class="row spread">
+        <span>Native host</span>
+        <button id="reconnect">Reconnect</button>
+      </div>
+      <div id="hostDetail" class="detail"></div>
+      <div id="scriptsDetail" class="detail"></div>
+    </section>
+
+    <section>
+      <label for="urlPattern">Capture filter</label>
+      <input id="urlPattern" placeholder="empty = all URLs, or /regex/">
+      <label class="row"><input id="includeSecrets" type="checkbox"> include raw secrets</label>
+      <label class="row"><input id="captureBody" type="checkbox"> capture request bodies</label>
+      <div class="buttons">
+        <button id="startCapture">Start capture</button>
+        <button id="stopCapture">Stop</button>
+      </div>
+    </section>
+
+    <section>
+      <label for="scriptCode">Run script in active tab</label>
+      <textarea id="scriptCode" spellcheck="false">document.title</textarea>
+      <div class="buttons">
+        <button id="runScript">Run</button>
+        <button id="getCookies">Cookies</button>
+      </div>
+      <pre id="output"></pre>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
