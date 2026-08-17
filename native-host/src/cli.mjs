@@ -56,18 +56,14 @@ async function main(name, argv) {
       return print(await extension("debugger.attach", { tabId: argv[0] || "active" }));
     case "debug-detach":
       return print(await extension("debugger.detach", { tabId: argv[0] || "active" }));
-    case "debug-command":
-      return print(await extension("debugger.command", {
-        tabId: argv[0] || "active",
-        method: required(argv[1], "debugger method"),
-        params: parseJson(argv[2] || "{}", "debugger params")
-      }));
     case "command":
       return print(await extension(required(argv[0], "extension command"), parseJson(argv[1] || "{}", "command params")));
     case "events":
       return print(await request("events.list", { limit: Number(argv[0] || 100) }));
     case "clear":
       return print(await request("events.clear"));
+    case "purge":
+      return print(await request("captures.purge"));
     case "curl": {
       const script = await request("curl.render");
       process.stdout.write(script.endsWith("\n") ? script : `${script}\n`);
@@ -101,12 +97,13 @@ function cookieArgs(argv) {
 }
 
 function captureArgs(argv) {
-  const params = { includeSecrets: false, urlPattern: "", captureRequestBody: false };
+  const params = { includeSecrets: false, urlPattern: "", allUrls: false, captureRequestBody: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--raw") params.includeSecrets = true;
     else if (arg === "--body") params.captureRequestBody = true;
     else if (arg === "--no-body") params.captureRequestBody = false;
+    else if (arg === "--all-urls") params.allUrls = true;
     else if (arg === "--filter") params.urlPattern = required(argv[++index], "capture filter");
     else throw new Error(`Unknown capture argument: ${arg}`);
   }
@@ -189,15 +186,15 @@ function usage() {
   chromium-sidecar eval <tabId|active> <javascript>
   chromium-sidecar eval-main <tabId|active> <javascript>
   chromium-sidecar cookies [url] [domain] [--raw]
-  chromium-sidecar capture-start [--filter <substring-or-/regex/>] [--body] [--raw]
+  chromium-sidecar capture-start (--filter <substring> | --all-urls) [--body] [--raw]
   chromium-sidecar capture-stop
   chromium-sidecar capture-status
   chromium-sidecar debug-attach [tabId|active]
   chromium-sidecar debug-detach [tabId|active]
-  chromium-sidecar debug-command <tabId|active> <method> [json-params]
   chromium-sidecar command <extension-command> [json-params]
   chromium-sidecar events [limit]
   chromium-sidecar clear
+  chromium-sidecar purge
   chromium-sidecar curl
 `);
 }

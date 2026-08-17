@@ -7,6 +7,8 @@ import {
   chmod,
   lstat,
   mkdir,
+  readdir,
+  rm,
   unlink,
   writeFile
 } from "node:fs/promises";
@@ -19,7 +21,12 @@ process.umask(0o077);
 
 const startedAt = new Date().toISOString();
 const callerOrigin = process.argv[2] || "";
-const expectedOrigin = process.env.CHROMIUM_SIDECAR_ALLOWED_ORIGIN || process.env.ARC_CODEX_ALLOWED_ORIGIN || EXTENSION_ORIGIN;
+const expectedOrigins = allowedOrigins(
+  process.env.CHROMIUM_SIDECAR_ALLOWED_ORIGINS ||
+  process.env.CHROMIUM_SIDECAR_ALLOWED_ORIGIN ||
+  process.env.ARC_CODEX_ALLOWED_ORIGIN ||
+  EXTENSION_ORIGIN
+);
 const configuredStateDir = process.env.CHROMIUM_SIDECAR_STATE_DIR || process.env.ARC_CODEX_STATE_DIR;
 const configuredSocketPath = process.env.CHROMIUM_SIDECAR_SOCKET || process.env.ARC_CODEX_SOCKET;
 const stateDir = path.resolve(configuredStateDir || path.join(os.homedir(), ".chromium-sidecar"));
@@ -35,14 +42,32 @@ const maxEvents = positiveInteger(
   10000,
   100000
 );
+const maxEventBytes = positiveInteger(process.env.CHROMIUM_SIDECAR_MAX_EVENT_BYTES, 1024 * 1024, 8 * 1024 * 1024);
+const maxEventMemoryBytes = positiveInteger(
+  process.env.CHROMIUM_SIDECAR_MAX_EVENT_MEMORY_BYTES,
+  64 * 1024 * 1024,
+  512 * 1024 * 1024
+);
+const maxCaptureBytes = positiveInteger(
+  process.env.CHROMIUM_SIDECAR_MAX_CAPTURE_BYTES,
+  256 * 1024 * 1024,
+  2 * 1024 * 1024 * 1024
+);
 const captureDir = path.join(capturesRoot, `${stamp()}-${process.pid}`);
 const eventsPath = path.join(captureDir, "events.ndjson");
 const snapshotPath = path.join(captureDir, "latest.json");
 const currentPath = path.join(stateDir, "current.json");
 const clients = new Set();
 const events = [];
+const eventSizes = [];
 const pending = new Map();
 const listeners = [];
+const CONSENT_FREE_EXTENSION_COMMANDS = new Set([
+  "ping",
+  "privacy.status",
+  "native.reconnect",
+  "runtime.reload"
+]);
 
 let extensionInfo = null;
 let commandSequence = 0;
@@ -51,9 +76,12 @@ let eventWriteQueue = Promise.resolve();
 let nativeWriteQueue = Promise.resolve();
 let eventWriteBuffer = "";
 let eventFlushTimer = null;
+let eventMemoryBytes = 0;
+let eventBytesWritten = 0;
+let captureLimitReached = false;
 
-if (callerOrigin !== expectedOrigin) {
-  fatal(`Refusing Native Messaging caller ${callerOrigin || "<missing>"}; expected ${expectedOrigin}`);
+if (!expectedOrigins.includes(callerOrigin)) {
+  fatal(`Refusing Native Messaging caller ${callerOrigin || "<missing>"}; expected an installed extension origin`);
 }
 
 await prepareFilesystem();
@@ -139,20 +167,29 @@ async function handleControlRequest(request) {
     case "providers.list":
       return [await arcProviderInfo()];
     case "arc.spaces.list":
+      requireBrowserConsent();
       return listArcSpaces();
     case "arc.space.focus":
+      requireBrowserConsent();
       return focusArcSpace(requiredString(params.spaceId, "spaceId"));
     case "events.list": {
+      requireBrowserConsent();
       const limit = positiveInteger(params.limit, 100, 1000);
       return events.slice(-limit);
     }
     case "events.clear":
       await clearEvents();
       return { cleared: true, captureDir };
+    case "captures.purge":
+      return purgeCaptures();
     case "curl.render":
+      requireBrowserConsent();
       return renderCurl(events);
-    case "extension.command":
-      return sendCommand(requiredString(params.command, "command"), params.params || {}, params.timeoutMs);
+    case "extension.command": {
+      const command = requiredString(params.command, "command");
+      if (!CONSENT_FREE_EXTENSION_COMMANDS.has(command)) requireBrowserConsent();
+      return sendCommand(command, params.params || {}, params.timeoutMs);
+    }
     default:
       throw new Error(`Unknown control method: ${method || "<missing>"}`);
   }
@@ -193,15 +230,38 @@ function sendNative(message) {
 }
 
 function recordEvent(event) {
-  const normalized = {
+  let normalized = {
     ts: event?.ts || new Date().toISOString(),
     receivedAt: new Date().toISOString(),
     type: String(event?.type || "unknown"),
     payload: event?.payload ?? {}
   };
+  let line = `${JSON.stringify(normalized)}\n`;
+  let lineBytes = Buffer.byteLength(line, "utf8");
+  if (lineBytes > maxEventBytes) {
+    normalized = {
+      ts: normalized.ts,
+      receivedAt: normalized.receivedAt,
+      type: normalized.type,
+      payload: { truncated: true, originalBytes: lineBytes, limitBytes: maxEventBytes }
+    };
+    line = `${JSON.stringify(normalized)}\n`;
+    lineBytes = Buffer.byteLength(line, "utf8");
+  }
+
   events.push(normalized);
-  if (events.length > maxEvents) events.splice(0, events.length - maxEvents);
-  eventWriteBuffer += `${JSON.stringify(normalized)}\n`;
+  eventSizes.push(lineBytes);
+  eventMemoryBytes += lineBytes;
+  while (events.length > maxEvents || eventMemoryBytes > maxEventMemoryBytes) {
+    events.shift();
+    eventMemoryBytes -= eventSizes.shift() || 0;
+  }
+
+  if (!captureLimitReached && eventBytesWritten + Buffer.byteLength(eventWriteBuffer, "utf8") + lineBytes <= maxCaptureBytes) {
+    eventWriteBuffer += line;
+  } else {
+    captureLimitReached = true;
+  }
   if (Buffer.byteLength(eventWriteBuffer, "utf8") >= 64 * 1024) {
     void flushEventWrites();
   } else if (!eventFlushTimer) {
@@ -218,6 +278,8 @@ function flushEventWrites() {
   if (!eventWriteBuffer) return eventWriteQueue;
   const payload = eventWriteBuffer;
   eventWriteBuffer = "";
+  const payloadBytes = Buffer.byteLength(payload, "utf8");
+  eventBytesWritten += payloadBytes;
   const operation = eventWriteQueue.then(() => appendFile(eventsPath, payload, { mode: 0o600 }));
   eventWriteQueue = operation.catch(error => logError(`capture write failed: ${errorMessage(error)}`));
   return operation;
@@ -225,9 +287,29 @@ function flushEventWrites() {
 
 async function clearEvents() {
   events.length = 0;
+  eventSizes.length = 0;
+  eventMemoryBytes = 0;
   await flushEventWrites();
   await writeFile(eventsPath, "", { mode: 0o600 });
+  eventBytesWritten = 0;
+  captureLimitReached = false;
   await writeSnapshot();
+}
+
+async function purgeCaptures() {
+  await clearEvents();
+  const entries = await readdir(capturesRoot, { withFileTypes: true }).catch(error => {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  });
+  let removed = 0;
+  for (const entry of entries) {
+    const entryPath = path.resolve(capturesRoot, entry.name);
+    if (entryPath === captureDir) continue;
+    await rm(entryPath, { recursive: true, force: true });
+    removed += 1;
+  }
+  return { purged: true, removed, activeCaptureDir: captureDir };
 }
 
 async function writeSnapshot() {
@@ -247,7 +329,14 @@ function hostInfo() {
     compatibilitySocketPath,
     captureDir,
     events: events.length,
-    extension: extensionInfo?.extension || null
+    captureStorage: {
+      bytesWritten: eventBytesWritten,
+      maxBytes: maxCaptureBytes,
+      limitReached: captureLimitReached
+    },
+    extension: extensionInfo?.extension || null,
+    privacy: extensionInfo?.privacy || { consented: false },
+    permissions: extensionInfo?.permissions || {}
   };
 }
 
@@ -389,6 +478,30 @@ function requiredString(value, label) {
   const result = String(value ?? "");
   if (!result.trim()) throw new Error(`Missing ${label}`);
   return result;
+}
+
+function requireBrowserConsent() {
+  if (
+    extensionInfo?.privacy?.consented !== true ||
+    extensionInfo?.permissions?.siteAccess !== true ||
+    extensionInfo?.permissions?.tabs !== true
+  ) {
+    throw new Error("Browser access has not been approved in the Chromium Sidecar popup");
+  }
+}
+
+function allowedOrigins(value) {
+  const origins = String(value || "")
+    .split(",")
+    .map(item => item.trim())
+    .filter(Boolean);
+  if (!origins.length || origins.length > 16) throw new Error("Invalid Native Messaging origin allowlist");
+  for (const origin of origins) {
+    if (!/^chrome-extension:\/\/[a-p]{32}\/$/.test(origin)) {
+      throw new Error(`Invalid Native Messaging extension origin: ${origin}`);
+    }
+  }
+  return Array.from(new Set(origins));
 }
 
 function stamp() {

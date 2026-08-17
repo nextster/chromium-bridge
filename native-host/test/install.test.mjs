@@ -16,6 +16,7 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
   const result = JSON.parse(stdout);
   assert.equal(result.installed, false);
   assert.equal(result.extensionId, EXTENSION_ID);
+  assert.deepEqual(result.extensionIds, [EXTENSION_ID]);
   assert.equal(result.hostManifest.name, NATIVE_HOST_NAME);
   assert.deepEqual(result.hostManifest.allowed_origins, [`chrome-extension://${EXTENSION_ID}/`]);
   assert.deepEqual(result.browserRegistrations.map(item => item.browser), [
@@ -41,4 +42,20 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
     "host.mjs"
   ]);
   assert.equal(result.hostManifest.path, result.hostLauncherPath);
+});
+
+test("installer can authorize a store extension id alongside the development id", async () => {
+  const storeId = "abcdefghijklmnopabcdefghijklmnop";
+  const { stdout } = await execFileAsync(process.execPath, [
+    installerPath,
+    "--dry-run",
+    "--extension-id",
+    storeId
+  ]);
+  const result = JSON.parse(stdout);
+  assert.deepEqual(result.extensionIds, [EXTENSION_ID, storeId]);
+  assert.deepEqual(result.hostManifest.allowed_origins, [
+    `chrome-extension://${EXTENSION_ID}/`,
+    `chrome-extension://${storeId}/`
+  ]);
 });

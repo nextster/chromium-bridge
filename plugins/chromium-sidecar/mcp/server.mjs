@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-sidecar";
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.5.0";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_SIDECAR_SOCKET ||
@@ -89,7 +89,7 @@ const tools = [
     tabId: tabProperty(),
     ...postActionProperties()
   }, consequential, ["ref", "value"]),
-  tool("evaluate", "Execute JavaScript in the page. This is powerful and may mutate the page or trigger network actions.", {
+  tool("evaluate", "Execute user-supplied JavaScript in the page. This is powerful and may mutate the page or trigger network actions.", {
     code: stringProperty("JavaScript expression or program."),
     tabId: tabProperty(),
     world: {
@@ -135,7 +135,8 @@ const tools = [
     openWorldHint: true
   }),
   tool("capture_start", "Start filtered network capture. Secret headers and sensitive body fields are redacted unless includeSecrets is explicitly true.", {
-    urlPattern: stringProperty("URL substring or /regular expression/ filter."),
+    urlPattern: stringProperty("URL substring filter."),
+    allUrls: booleanProperty("Capture every URL. Use only when the user explicitly requested unfiltered capture."),
     captureRequestBody: booleanProperty("Capture request bodies."),
     includeSecrets: booleanProperty("Capture raw cookies, authorization headers, and bodies. This stores credentials locally.")
   }, consequential),
@@ -144,7 +145,8 @@ const tools = [
   tool("events", "List recently captured bridge and network events.", {
     limit: integerProperty("Maximum events to return.", 1, 1000)
   }, readOnly),
-  tool("render_curl", "Render captured requests as a Bash script containing curl commands. Redacted secrets become environment variables.", {}, readOnly)
+  tool("render_curl", "Render captured requests as a Bash script containing curl commands. Redacted secrets become environment variables.", {}, readOnly),
+  tool("purge_captures", "Delete all locally stored capture sessions and clear the active capture log.", {}, consequential)
 ];
 
 let inputBuffer = "";
@@ -162,10 +164,9 @@ process.stdin.on("data", chunk => {
     if (line.trim()) void handleLine(line);
   }
 });
-process.stdin.on("end", () => {
-  controlClient.close();
-  process.exit(0);
-});
+process.stdin.on("end", () => void shutdown(0));
+process.on("SIGTERM", () => void shutdown(0));
+process.on("SIGINT", () => void shutdown(0));
 
 async function handleLine(line) {
   let message;
@@ -312,6 +313,7 @@ async function callTool(name, args) {
     case "capture_start":
       return textResult(await extension("capture.start", {
         urlPattern: String(args.urlPattern || ""),
+        allUrls: args.allUrls === true,
         captureRequestBody: args.captureRequestBody === true,
         includeSecrets: args.includeSecrets === true
       }));
@@ -325,6 +327,8 @@ async function callTool(name, args) {
       }));
     case "render_curl":
       return textResult(await request("curl.render"));
+    case "purge_captures":
+      return textResult(await request("captures.purge"));
     default:
       throw new Error(`Unknown tool: ${name || "<missing>"}`);
   }
@@ -365,6 +369,16 @@ async function closeAgentTabs() {
   closed.sort((a, b) => a - b);
   failed.sort((a, b) => a.tabId - b.tabId);
   return { closed, failed };
+}
+
+let shuttingDown = false;
+
+async function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  await Promise.race([closeAgentTabs(), delay(2000)]).catch(() => {});
+  controlClient.close();
+  process.exit(code);
 }
 
 async function clickElement(args) {

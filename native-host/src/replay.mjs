@@ -24,7 +24,7 @@ export function renderCurl(events) {
       if (REDACTED.test(value)) {
         const variable = headerVariable(name);
         variables.add(variable);
-        args.push(`-H ${dq(`${name}: \${${variable}}`)}`);
+        args.push(`-H ${withEnvironmentValue(`${name}: `, variable)}`);
       } else {
         args.push(`-H ${sh(`${name}: ${value}`)}`);
       }
@@ -81,9 +81,9 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
       values.forEach((rawValue, valueIndex) => {
         const value = String(rawValue ?? "");
         if (REDACTED.test(value)) {
-          const variable = `ARC_FORM_${requestIndex}_${slug(key)}_${valueIndex + 1}`;
+          const variable = `SIDECAR_FORM_${requestIndex}_${slug(key)}_${valueIndex + 1}`;
           variables.add(variable);
-          args.push(`${option} ${dq(`${key}=\${${variable}}`)}`);
+          args.push(`${option} ${withEnvironmentValue(`${key}=`, variable)}`);
         } else {
           args.push(`${option} ${sh(`${key}=${value}`)}`);
         }
@@ -93,7 +93,7 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
   }
 
   if (body.kind === "redacted") {
-    const variable = `ARC_BODY_${requestIndex}`;
+    const variable = `SIDECAR_BODY_${requestIndex}`;
     variables.add(variable);
     args.push(`--data-binary ${dq(`\${${variable}}`)}`);
     return;
@@ -104,7 +104,7 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
   const textOnly = parts.every(part => typeof part?.text === "string");
   const text = textOnly ? parts.map(part => part.text).join("") : "";
   if (!textOnly || REDACTED.test(text)) {
-    const variable = `ARC_BODY_${requestIndex}`;
+    const variable = `SIDECAR_BODY_${requestIndex}`;
     variables.add(variable);
     args.push(`--data-binary ${dq(`\${${variable}}`)}`);
   } else if (text) {
@@ -117,7 +117,11 @@ function headerValue(headers, wantedName) {
 }
 
 function headerVariable(name) {
-  return /^cookie$/i.test(name) ? "ARC_COOKIE" : `ARC_HEADER_${slug(name)}`;
+  return /^cookie$/i.test(name) ? "SIDECAR_COOKIE" : `SIDECAR_HEADER_${slug(name)}`;
+}
+
+function withEnvironmentValue(prefix, variable) {
+  return `${sh(prefix)}"\${${variable}}"`;
 }
 
 function slug(value) {
