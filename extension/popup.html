@@ -1,45 +1,80 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Chromium Sidecar</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <header>
-      <h1>Chromium Sidecar</h1>
-      <div id="status">checking...</div>
+      <div class="brand">
+        <h1>Chromium Sidecar</h1>
+      </div>
+      <div id="status" class="status">checking</div>
     </header>
 
-    <section>
-      <div class="row spread">
-        <span>Native host</span>
-        <button id="reconnect">Reconnect</button>
-      </div>
-      <div id="hostDetail" class="detail"></div>
-      <div id="scriptsDetail" class="detail"></div>
+    <section id="consentPanel" class="consent hidden">
+      <h2>Local browser access</h2>
+      <p>Chromium Sidecar lets local tools you install read and control websites in this browser profile.</p>
+      <ul>
+        <li>Page content, URLs, and browser interactions may be sent to the local Native Messaging host.</li>
+        <li>Cookies and DevTools access are separate optional permissions.</li>
+        <li>The extension has no developer-operated server. Your local tools decide where their outputs are processed.</li>
+      </ul>
+      <p><a href="https://github.com/nextster/chromium-sidecar/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy policy</a></p>
+      <button id="enableAccess" class="primary wide">Enable local browser access</button>
+      <div id="consentError" class="detail error" aria-live="polite"></div>
     </section>
 
-    <section>
-      <label for="urlPattern">Capture filter</label>
-      <input id="urlPattern" placeholder="empty = all URLs, or /regex/">
-      <label class="row"><input id="includeSecrets" type="checkbox"> include raw secrets</label>
-      <label class="row"><input id="captureBody" type="checkbox"> capture request bodies</label>
-      <div class="buttons">
-        <button id="startCapture">Start capture</button>
-        <button id="stopCapture">Stop</button>
-      </div>
-    </section>
+    <main id="mainPanel" class="hidden">
+      <section>
+        <div class="row spread">
+          <div>
+            <h2>Connection</h2>
+            <div id="hostDetail" class="detail"></div>
+          </div>
+          <button id="reconnect" class="secondary">Reconnect</button>
+        </div>
+        <div id="scriptsDetail" class="detail"></div>
+      </section>
 
-    <section>
-      <label for="scriptCode">Run script in active tab</label>
-      <textarea id="scriptCode" spellcheck="false">document.title</textarea>
-      <div class="buttons">
-        <button id="runScript">Run</button>
-        <button id="getCookies">Cookies</button>
-      </div>
-      <pre id="output"></pre>
-    </section>
+      <section>
+        <h2>Optional access</h2>
+        <div class="buttons">
+          <button id="grantCookies" class="secondary">Enable cookies</button>
+          <button id="grantDebugger" class="secondary">Enable DevTools</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Network capture</h2>
+        <label for="urlPattern">URL filter</label>
+        <input id="urlPattern" placeholder="example.com/api" autocomplete="off">
+        <label class="check"><input id="allUrls" type="checkbox"> capture all URLs</label>
+        <label class="check"><input id="captureBody" type="checkbox"> capture request bodies</label>
+        <label class="check warning"><input id="includeSecrets" type="checkbox"> include raw secrets</label>
+        <div class="buttons">
+          <button id="startCapture" class="primary">Start capture</button>
+          <button id="stopCapture" class="secondary">Stop</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Active tab script</h2>
+        <textarea id="scriptCode" spellcheck="false" aria-label="JavaScript source">document.title</textarea>
+        <div class="buttons">
+          <button id="runScript" class="primary">Run</button>
+          <button id="getCookies" class="secondary">Cookies</button>
+        </div>
+        <pre id="output" aria-live="polite"></pre>
+      </section>
+
+      <section class="footer-actions">
+        <a href="https://github.com/nextster/chromium-sidecar/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy</a>
+        <button id="revokeAccess" class="text-button">Revoke browser access</button>
+      </section>
+    </main>
 
     <script src="popup.js"></script>
   </body>

@@ -17,7 +17,7 @@ const hostPath = path.resolve(testDir, "../src/host.mjs");
 const cliPath = path.resolve(testDir, "../src/cli.mjs");
 
 test("native host bridges CLI commands and records replayable events", { timeout: 15000 }, async () => {
-  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), "arc-codex-host-test-"));
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), "chromium-sidecar-host-test-"));
   const stateDir = path.join(temporaryDir, "state");
   const socketPath = path.join(stateDir, "control.sock");
   const env = { ...process.env, ARC_CODEX_STATE_DIR: stateDir, ARC_CODEX_SOCKET: socketPath };
@@ -28,10 +28,17 @@ test("native host bridges CLI commands and records replayable events", { timeout
 
   try {
     await waitFor(async () => stat(socketPath).then(() => true, () => false));
+    await assert.rejects(
+      control(socketPath, "extension.command", { command: "tabs.list", params: {} }),
+      /has not been approved/
+    );
+    await assert.rejects(control(socketPath, "arc.spaces.list"), /has not been approved/);
     child.stdin.write(encodeNativeMessage({
       type: "hello",
       extension: { id: "test-extension", name: "Chromium Sidecar", version: "test" },
-      capture: { enabled: false }
+      capture: { enabled: false },
+      privacy: { consented: true, version: 1 },
+      permissions: { siteAccess: true, tabs: true, cookies: false, debugger: false }
     }));
 
     await waitFor(async () => {
@@ -85,7 +92,7 @@ test("native host bridges CLI commands and records replayable events", { timeout
     await waitFor(async () => (await control(socketPath, "host.info")).events >= 3);
     const replay = await control(socketPath, "curl.render");
     assert.match(replay, /--data-urlencode 'amount=42'/);
-    assert.match(replay, /ARC_FORM_1_TOKEN_1/);
+    assert.match(replay, /SIDECAR_FORM_1_TOKEN_1/);
 
     const info = await control(socketPath, "host.info");
     assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
@@ -103,7 +110,7 @@ test("native host bridges CLI commands and records replayable events", { timeout
 });
 
 test("native host rejects an unexpected extension origin", async () => {
-  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), "arc-codex-origin-test-"));
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), "chromium-sidecar-origin-test-"));
   const stateDir = path.join(temporaryDir, "state");
   const child = spawn(process.execPath, [hostPath, "chrome-extension://wrong/"], {
     env: { ...process.env, ARC_CODEX_STATE_DIR: stateDir },

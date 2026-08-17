@@ -12,6 +12,7 @@ Use the `chromium-sidecar` MCP server for all webpage and browser interaction.
 - Use Chromium Sidecar for navigation, page inspection, clicks, form filling, screenshots, tabs, cookies, JavaScript, and network capture.
 - Do not switch to Playwright, another browser plugin, an in-app browser, or Computer Use for webpage interaction.
 - If the sidecar is unavailable, ask the user to start their supported Chromium browser or reload the Chromium Sidecar extension. Do not silently fall back to another browser backend.
+- If a tool reports that browser access is not approved, ask the user to open the extension popup and approve local browser access. Do not attempt to bypass the consent gate.
 - Computer Use remains appropriate for non-browser desktop applications. If browser chrome itself is not exposed by the sidecar, explain that limitation instead of switching backends.
 
 ## Fast Path
@@ -50,6 +51,7 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 - Keep `includeSecrets` false by default for cookies and capture.
 - Set `includeSecrets` true only when the user explicitly requests raw credentials or an exact authenticated replay and understands that secrets will enter local Codex tool output or capture files.
 - Filter capture to the narrowest relevant domain and stop it immediately after the required flow.
+- Never request all-URL capture unless the user explicitly asked for unfiltered capture; ordinary capture requires a URL substring.
 - Always call `capture_stop` before finishing a task that started capture, even after an error.
 - Prefer snapshot and ref tools. Use one read-only `evaluate` call when a known DOM or API expression can answer the question more directly; do not use it to bypass confirmation for consequential actions.
 
@@ -62,3 +64,5 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 5. Use `render_curl` to produce replay commands.
 
 Redacted replay scripts intentionally require environment variables for cookies and authorization headers.
+
+Use `purge_captures` when the user asks to delete locally stored capture sessions. Revoking extension access stops future browser access but does not silently delete prior local capture files.

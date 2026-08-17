@@ -1,8 +1,18 @@
 import { createTabAndWait, navigateTabAndWait } from "./tab-navigation.js";
+import {
+  captureOptions,
+  extractCapturedRequestBody,
+  matchesCaptureUrl,
+  normalizeCapturedHeaders,
+  redactDebuggerValue,
+  redactUrl
+} from "./capture-safety.js";
 
 const NATIVE_HOST_NAME = "com.chromium_sidecar.bridge";
-const EXTENSION_VERSION = "0.4.0";
-const SENSITIVE_FIELD = /pass(word)?|secret|token|authorization|auth|otp|code|pin|cvv|cvc|card|session|cookie/i;
+const EXTENSION_VERSION = "0.5.0";
+const PRIVACY_CONSENT_VERSION = 1;
+const MAX_SCRIPT_CHARS = 512 * 1024;
+const MAX_RESPONSE_BODY_CHARS = 1024 * 1024;
 const DEBUGGER_EVENT_ALLOWLIST = new Set([
   "Network.requestWillBeSent",
   "Network.requestWillBeSentExtraInfo",
@@ -18,27 +28,34 @@ let reconnectDelay = 1000;
 let lastNativeError = "";
 let initialized = false;
 let userScriptsReady = null;
+let privacyConsentVersion = 0;
 
 const capture = {
   enabled: false,
   includeSecrets: false,
   urlPattern: "",
+  allUrls: false,
   captureRequestBody: false
 };
 
 const debuggerTabs = new Set();
 const debuggerRequestUrls = new Map();
+let debuggerListenersRegistered = false;
 
 init();
 chrome.runtime.onStartup.addListener(init);
 chrome.runtime.onInstalled.addListener(init);
+chrome.permissions.onAdded.addListener(() => void sendHello());
+chrome.permissions.onRemoved.addListener(() => void sendHello());
 
 async function init() {
   if (initialized) return;
   initialized = true;
-  const stored = await storageGet(["capture"]);
+  const stored = await storageGet(["capture", "privacyConsentVersion"]);
+  privacyConsentVersion = Number(stored.privacyConsentVersion || 0);
   if (stored.capture) {
     capture.urlPattern = String(stored.capture.urlPattern || "");
+    capture.allUrls = Boolean(stored.capture.allUrls);
     capture.captureRequestBody = Boolean(stored.capture.captureRequestBody);
   }
   capture.enabled = false;
@@ -47,7 +64,12 @@ async function init() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleCommand(message || {}, { popup: true, sender })
+  if (sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) {
+    sendResponse({ ok: false, error: "Untrusted extension message sender" });
+    return false;
+  }
+  const popup = String(sender.url || "").startsWith(chrome.runtime.getURL("popup.html"));
+  handleCommand(message || {}, { popup, sender })
     .then(result => sendResponse({ ok: true, result }))
     .catch(error => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
@@ -61,10 +83,12 @@ chrome.webRequest.onBeforeRequest.addListener(
       tabId: details.tabId,
       frameId: details.frameId,
       method: details.method,
-      url: details.url,
+      url: redactUrl(details.url, capture.includeSecrets),
       type: details.type,
-      initiator: details.initiator || "",
-      requestBody: capture.captureRequestBody ? extractRequestBody(details) : undefined
+      initiator: redactUrl(details.initiator || "", capture.includeSecrets),
+      requestBody: capture.captureRequestBody
+        ? extractCapturedRequestBody(details, capture.includeSecrets)
+        : undefined
     });
   },
   { urls: ["<all_urls>"] },
@@ -79,8 +103,8 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       tabId: details.tabId,
       frameId: details.frameId,
       method: details.method,
-      url: details.url,
-      requestHeaders: normalizeHeaders(details.requestHeaders)
+      url: redactUrl(details.url, capture.includeSecrets),
+      requestHeaders: normalizeCapturedHeaders(details.requestHeaders, capture.includeSecrets)
     });
   },
   { urls: ["<all_urls>"] },
@@ -95,10 +119,10 @@ chrome.webRequest.onHeadersReceived.addListener(
       tabId: details.tabId,
       frameId: details.frameId,
       method: details.method,
-      url: details.url,
+      url: redactUrl(details.url, capture.includeSecrets),
       statusCode: details.statusCode,
       statusLine: details.statusLine,
-      responseHeaders: normalizeHeaders(details.responseHeaders)
+      responseHeaders: normalizeCapturedHeaders(details.responseHeaders, capture.includeSecrets)
     });
   },
   { urls: ["<all_urls>"] },
@@ -113,7 +137,7 @@ chrome.webRequest.onCompleted.addListener(
       tabId: details.tabId,
       frameId: details.frameId,
       method: details.method,
-      url: details.url,
+      url: redactUrl(details.url, capture.includeSecrets),
       statusCode: details.statusCode,
       fromCache: details.fromCache,
       ip: details.ip || ""
@@ -130,14 +154,14 @@ chrome.webRequest.onErrorOccurred.addListener(
       tabId: details.tabId,
       frameId: details.frameId,
       method: details.method,
-      url: details.url,
+      url: redactUrl(details.url, capture.includeSecrets),
       error: details.error
     });
   },
   { urls: ["<all_urls>"] }
 );
 
-chrome.debugger.onEvent.addListener((source, method, params) => {
+function handleDebuggerEvent(source, method, params) {
   const tabId = source?.tabId;
   if (tabId == null || !debuggerTabs.has(tabId) || !capture.enabled) return;
 
@@ -150,7 +174,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (!url || !shouldCapture(url)) return;
 
   if (DEBUGGER_EVENT_ALLOWLIST.has(method)) {
-    emitEvent("debugger.event", { tabId, method, params: redactDebuggerValue(params) });
+    emitEvent("debugger.event", {
+      tabId,
+      method,
+      params: redactDebuggerValue(params, capture.includeSecrets)
+    });
   }
 
   if (method === "Network.loadingFinished" && params?.requestId) {
@@ -159,14 +187,21 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   } else if (method === "Network.loadingFailed" && key) {
     debuggerRequestUrls.delete(key);
   }
-});
+}
 
-chrome.debugger.onDetach.addListener(source => {
+function handleDebuggerDetach(source) {
   if (source?.tabId == null) return;
   debuggerTabs.delete(source.tabId);
   deleteDebuggerRequests(source.tabId);
   emitEvent("debugger.detached", { tabId: source.tabId });
-});
+}
+
+function ensureDebuggerListeners() {
+  if (debuggerListenersRegistered) return;
+  chrome.debugger.onEvent.addListener(handleDebuggerEvent);
+  chrome.debugger.onDetach.addListener(handleDebuggerDetach);
+  debuggerListenersRegistered = true;
+}
 
 function connectNativeHost() {
   clearTimeout(reconnectTimer);
@@ -202,15 +237,21 @@ function connectNativeHost() {
   });
 
   reconnectDelay = 1000;
+  void sendHello();
+}
+
+async function sendHello() {
   sendNative({
     type: "hello",
     extension: {
       id: chrome.runtime.id,
       name: "Chromium Sidecar",
       version: EXTENSION_VERSION,
-      userAgent: navigator.userAgent
+      ...(privacyState().consented ? { userAgent: navigator.userAgent } : {})
     },
-    capture: captureState()
+    capture: captureState(),
+    privacy: privacyState(),
+    permissions: await permissionState()
   });
 }
 
@@ -220,7 +261,7 @@ function scheduleReconnect() {
   reconnectDelay = Math.min(reconnectDelay * 2, 30000);
 }
 
-async function handleCommand(message) {
+async function handleCommand(message, context = {}) {
   const command = message.command || message.type;
   const params = message.params || {};
   switch (command) {
@@ -229,36 +270,58 @@ async function handleCommand(message) {
         pong: true,
         nativeHost: nativeStatus(),
         userScriptsAvailable: await userScriptsAvailable(true),
-        capture: captureState()
+        capture: captureState(),
+        privacy: privacyState(),
+        permissions: await permissionState()
       };
+    case "privacy.status":
+      return { privacy: privacyState(), permissions: await permissionState() };
+    case "privacy.consent": {
+      requirePopup(context);
+      const permissions = await permissionState();
+      if (!permissions.siteAccess || !permissions.tabs) {
+        throw new Error("Grant access to websites before enabling Chromium Sidecar");
+      }
+      await storageSet({ privacyConsentVersion: PRIVACY_CONSENT_VERSION });
+      privacyConsentVersion = PRIVACY_CONSENT_VERSION;
+      await sendHello();
+      return { privacy: privacyState(), permissions };
+    }
+    case "privacy.revoke":
+      requirePopup(context);
+      await stopCapture();
+      privacyConsentVersion = 0;
+      try {
+        await storageSet({ privacyConsentVersion });
+      } finally {
+        await sendHello();
+      }
+      return { privacy: privacyState(), permissions: await permissionState() };
     case "native.reconnect":
       connectNativeHost();
       return nativeStatus();
     case "runtime.reload":
       setTimeout(() => chrome.runtime.reload(), 250);
       return { reloading: true, version: EXTENSION_VERSION };
-    case "capture.start":
-      capture.enabled = true;
-      capture.includeSecrets = Boolean(params.includeSecrets);
-      capture.urlPattern = String(params.urlPattern || "");
-      capture.captureRequestBody = Boolean(params.captureRequestBody);
+  }
+
+  await requireBrowserAccess();
+  switch (command) {
+    case "capture.start": {
+      Object.assign(capture, captureOptions(params), { enabled: true });
       await persistCapturePreferences();
       emitEvent("capture.started", { capture: captureState() });
       return captureState();
+    }
     case "capture.stop":
-      capture.enabled = false;
-      capture.includeSecrets = false;
-      await persistCapturePreferences();
-      await detachAllDebuggers();
-      emitEvent("capture.stopped", { capture: captureState() });
-      return captureState();
+      return stopCapture();
     case "capture.status":
       return captureState();
     case "tabs.list":
       return chrome.tabs.query({});
     case "tabs.create":
       return createTabAndWait(chrome.tabs, {
-        ...(params.url ? { url: String(params.url) } : {}),
+        ...(params.url ? { url: safeNavigationUrl(params.url) } : {}),
         active: params.active === true
       });
     case "tabs.active":
@@ -272,7 +335,7 @@ async function handleCommand(message) {
       return navigateTabAndWait(
         chrome.tabs,
         await getTabId(params.tabId),
-        requiredString(params.url, "url")
+        safeNavigationUrl(params.url)
       );
     case "tab.back": {
       const tabId = await getTabId(params.tabId);
@@ -297,8 +360,6 @@ async function handleCommand(message) {
       return attachDebugger(await getTabId(params.tabId));
     case "debugger.detach":
       return detachDebugger(await getTabId(params.tabId));
-    case "debugger.command":
-      return debuggerCommand(await getTabId(params.tabId), params.method, params.params || {});
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -309,7 +370,7 @@ async function executeUserScript(params) {
     throw new Error("Allow User Scripts is disabled for Chromium Sidecar");
   }
   const tabId = await getTabId(params.tabId);
-  const code = requiredString(params.code, "code");
+  const code = requiredBoundedString(params.code, "code", MAX_SCRIPT_CHARS);
   const world = params.world === "MAIN" ? "MAIN" : "USER_SCRIPT";
   let results;
   try {
@@ -339,6 +400,7 @@ async function userScriptsAvailable(refresh = false) {
 }
 
 async function getCookies(params) {
+  await requireOptionalPermission("cookies");
   const query = {};
   if (params.url) query.url = String(params.url);
   if (params.domain) query.domain = String(params.domain);
@@ -388,10 +450,12 @@ async function downscaleScreenshot(dataUrl, format, quality, maxWidth) {
 }
 
 async function attachDebugger(tabId) {
+  await requireOptionalPermission("debugger");
+  ensureDebuggerListeners();
   if (debuggerTabs.has(tabId)) return { tabId, attached: true };
   await chrome.debugger.attach({ tabId }, "1.3");
   debuggerTabs.add(tabId);
-  await debuggerCommand(tabId, "Network.enable", {});
+  await sendDebuggerCommand(tabId, "Network.enable", {});
   emitEvent("debugger.attached", { tabId });
   return { tabId, attached: true };
 }
@@ -409,23 +473,30 @@ async function detachAllDebuggers() {
   await Promise.all(tabIds.map(tabId => detachDebugger(tabId).catch(() => null)));
 }
 
-function debuggerCommand(tabId, method, params) {
-  if (!method) throw new Error("debugger.command requires params.method");
+function sendDebuggerCommand(tabId, method, params) {
   return chrome.debugger.sendCommand({ tabId }, method, params || {});
 }
 
 async function getResponseBody(tabId, requestId, url) {
   try {
-    const body = await debuggerCommand(tabId, "Network.getResponseBody", { requestId });
+    const body = await sendDebuggerCommand(tabId, "Network.getResponseBody", { requestId });
+    const rawBody = String(body.body || "");
+    const truncated = rawBody.length > MAX_RESPONSE_BODY_CHARS;
     emitEvent("debugger.responseBody", {
       tabId,
       requestId,
-      url,
+      url: redactUrl(url, capture.includeSecrets),
       base64Encoded: Boolean(body.base64Encoded),
-      body: body.body
+      body: rawBody.slice(0, MAX_RESPONSE_BODY_CHARS),
+      ...(truncated ? { truncatedChars: rawBody.length - MAX_RESPONSE_BODY_CHARS } : {})
     });
   } catch (error) {
-    emitEvent("debugger.responseBodyError", { tabId, requestId, url, error: errorMessage(error) });
+    emitEvent("debugger.responseBodyError", {
+      tabId,
+      requestId,
+      url: redactUrl(url, capture.includeSecrets),
+      error: errorMessage(error)
+    });
   }
 }
 
@@ -446,95 +517,7 @@ async function getTabId(tabId) {
 }
 
 function shouldCapture(url) {
-  if (!capture.enabled) return false;
-  if (!capture.urlPattern) return true;
-  return matchesPattern(String(url || ""), capture.urlPattern);
-}
-
-function matchesPattern(url, pattern) {
-  if (!pattern) return true;
-  if (pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2) {
-    try {
-      return new RegExp(pattern.slice(1, -1)).test(url);
-    } catch {
-      return url.includes(pattern);
-    }
-  }
-  return url.includes(pattern);
-}
-
-function extractRequestBody(details) {
-  const requestBody = details.requestBody;
-  if (!requestBody) return undefined;
-  if (!capture.includeSecrets && isAuthLike(details.url)) {
-    return { kind: "redacted", reason: "auth-like URL" };
-  }
-  if (requestBody.error) return { kind: "error", error: requestBody.error };
-  if (requestBody.formData) {
-    return {
-      kind: "formData",
-      data: capture.includeSecrets ? requestBody.formData : redactFormData(requestBody.formData)
-    };
-  }
-  if (requestBody.raw) {
-    return {
-      kind: "raw",
-      parts: requestBody.raw.map(part => serializeUploadPart(part, capture.includeSecrets))
-    };
-  }
-  return { kind: "unknown" };
-}
-
-function redactFormData(formData) {
-  return Object.fromEntries(Object.entries(formData).map(([key, values]) => [
-    key,
-    SENSITIVE_FIELD.test(key) ? values.map(value => `<redacted:${String(value).length}>`) : values
-  ]));
-}
-
-function serializeUploadPart(part, includeSecrets) {
-  if (part.file) return { file: String(part.file) };
-  if (!part.bytes) return { empty: true };
-  const bytes = new Uint8Array(part.bytes);
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return includeSecrets ? { base64: bytesToBase64(bytes) } : { redactedBinaryBytes: bytes.byteLength };
-  }
-  return { text: includeSecrets ? text : redactBodyText(text) };
-}
-
-function redactBodyText(text) {
-  const value = String(text);
-  try {
-    return JSON.stringify(redactObject(JSON.parse(value)));
-  } catch {}
-
-  if (value.includes("=")) {
-    try {
-      const params = new URLSearchParams(value);
-      let found = false;
-      for (const key of new Set(params.keys())) {
-        if (!SENSITIVE_FIELD.test(key)) continue;
-        const values = params.getAll(key);
-        params.delete(key);
-        for (const item of values) params.append(key, `<redacted:${item.length}>`);
-        found = true;
-      }
-      if (found) return params.toString();
-    } catch {}
-  }
-  return value;
-}
-
-function redactObject(value, key = "") {
-  if (SENSITIVE_FIELD.test(key)) return `<redacted:${String(value ?? "").length}>`;
-  if (Array.isArray(value)) return value.map(item => redactObject(item));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, redactObject(child, childKey)]));
-  }
-  return value;
+  return capture.enabled && matchesCaptureUrl(url, capture);
 }
 
 function bytesToBase64(bytes) {
@@ -544,48 +527,6 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
   return btoa(binary);
-}
-
-function normalizeHeaders(headers = []) {
-  return headers.map(header => {
-    const name = String(header.name || "");
-    const value = String(header.value || "");
-    if (!capture.includeSecrets && isSecretHeader(name)) {
-      return { name, value: summarizeSecretHeader(value) };
-    }
-    return { name, value };
-  });
-}
-
-function redactDebuggerValue(value, key = "") {
-  if (value == null || typeof value !== "object") {
-    if (isSecretHeader(key)) return summarizeSecretHeader(value);
-    if (/postData/i.test(key)) return capture.includeSecrets ? value : redactBodyText(value);
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(item => redactDebuggerValue(item));
-  return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [
-    childKey,
-    redactDebuggerValue(child, childKey)
-  ]));
-}
-
-function isSecretHeader(name) {
-  return /^(cookie|set-cookie|authorization|proxy-authorization)$/i.test(String(name));
-}
-
-function isAuthLike(url) {
-  return /Authenticate|ConfirmAuthenticate|ResendCode|UpdateVcode|Login|signin|sign-in|password|otp/i.test(String(url));
-}
-
-function summarizeSecretHeader(value = "") {
-  const text = String(value);
-  if (!text) return "[REDACTED empty]";
-  return text.split(/;\s*/).filter(Boolean).map(part => {
-    const equals = part.indexOf("=");
-    if (equals < 0) return `<redacted:${part.length}>`;
-    return `${part.slice(0, equals)}=<redacted:${part.slice(equals + 1).length}>`;
-  }).join("; ");
 }
 
 function debuggerEventUrl(method, params) {
@@ -610,18 +551,76 @@ function captureState() {
     enabled: capture.enabled,
     includeSecrets: capture.includeSecrets,
     urlPattern: capture.urlPattern,
+    allUrls: capture.allUrls,
     captureRequestBody: capture.captureRequestBody,
     debuggerTabs: Array.from(debuggerTabs)
   };
+}
+
+async function stopCapture() {
+  const wasEnabled = capture.enabled;
+  capture.enabled = false;
+  capture.includeSecrets = false;
+  await persistCapturePreferences();
+  await detachAllDebuggers();
+  if (wasEnabled) emitEvent("capture.stopped", { capture: captureState() });
+  return captureState();
 }
 
 async function persistCapturePreferences() {
   await storageSet({
     capture: {
       urlPattern: capture.urlPattern,
+      allUrls: capture.allUrls,
       captureRequestBody: capture.captureRequestBody
     }
   });
+}
+
+function privacyState() {
+  return {
+    consented: privacyConsentVersion === PRIVACY_CONSENT_VERSION,
+    version: privacyConsentVersion,
+    requiredVersion: PRIVACY_CONSENT_VERSION
+  };
+}
+
+async function permissionState() {
+  const [siteAccess, tabs, cookies, debuggerAccess] = await Promise.all([
+    chrome.permissions.contains({ origins: ["<all_urls>"] }),
+    chrome.permissions.contains({ permissions: ["tabs"] }),
+    chrome.permissions.contains({ permissions: ["cookies"] }),
+    chrome.permissions.contains({ permissions: ["debugger"] })
+  ]);
+  return { siteAccess, tabs, cookies, debugger: debuggerAccess };
+}
+
+async function requireBrowserAccess() {
+  if (!privacyState().consented) {
+    throw new Error("Open the Chromium Sidecar popup and approve local browser access first");
+  }
+  const permissions = await permissionState();
+  if (!permissions.siteAccess || !permissions.tabs) {
+    throw new Error("Chromium Sidecar no longer has website access; grant it again from the popup");
+  }
+}
+
+async function requireOptionalPermission(permission) {
+  if (!await chrome.permissions.contains({ permissions: [permission] })) {
+    throw new Error(`Enable optional ${permission} access from the Chromium Sidecar popup first`);
+  }
+}
+
+function requirePopup(context) {
+  if (context.popup !== true) throw new Error("This action requires an explicit click in the extension popup");
+}
+
+function safeNavigationUrl(value) {
+  const url = requiredString(value, "url");
+  if (/^(?:javascript|data):/i.test(url.trim())) {
+    throw new Error("javascript: and data: navigation are not allowed");
+  }
+  return url;
 }
 
 function nativeStatus() {
@@ -662,6 +661,14 @@ function sendNative(message) {
 function requiredString(value, label) {
   const string = String(value ?? "");
   if (!string.trim()) throw new Error(`Missing ${label}`);
+  return string;
+}
+
+function requiredBoundedString(value, label, maximumLength) {
+  const string = requiredString(value, label);
+  if (string.length > maximumLength) {
+    throw new Error(`${label} exceeds ${maximumLength} characters`);
+  }
   return string;
 }
 

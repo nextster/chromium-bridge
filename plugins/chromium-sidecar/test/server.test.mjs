@@ -152,6 +152,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   assert.ok(response(2).result.tools.some(tool => tool.name === "close_agent_tabs"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "reload_extension"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "arc_list_spaces"));
+  assert.ok(response(2).result.tools.some(tool => tool.name === "purge_captures"));
   assert.match(response(3).result.content[0].text, /"pong":true/);
   assert.doesNotMatch(response(4).result.content[0].text, /favIconUrl/);
   assert.match(response(5).result.content[0].text, /e1 role=button tag=button name="Go"/);

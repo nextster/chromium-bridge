@@ -8,26 +8,30 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 const skipCodex = args.has("--no-codex");
 const skipOpen = args.has("--no-open");
 const dryRun = args.has("--dry-run");
+const hostOnly = args.has("--host-only");
+const extensionId = argumentValue("--extension-id");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, "..");
 const sourceExtensionDir = path.join(projectDir, "extension");
 const stateDir = path.join(os.homedir(), ".chromium-sidecar");
 const installedExtensionDir = path.join(stateDir, "extension");
 const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
+const installedMarketplaceDir = path.join(stateDir, "codex-marketplace");
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
 
-if (process.platform !== "darwin") {
+if (process.platform !== "darwin" && !dryRun) {
   throw new Error("The setup command currently supports macOS. The extension and MCP server are portable, but Native Messaging registration paths still need a platform installer.");
 }
 if (Number(process.versions.node.split(".")[0]) < 20) {
   throw new Error(`Node.js 20 or newer is required; found ${process.version}`);
 }
 
-if (!dryRun) {
+if (!dryRun && !hostOnly) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   await rm(temporaryExtensionDir, { recursive: true, force: true });
   await cp(sourceExtensionDir, temporaryExtensionDir, { recursive: true });
@@ -35,9 +39,13 @@ if (!dryRun) {
   await rename(temporaryExtensionDir, installedExtensionDir);
 }
 
-const hostResult = await runJson(process.execPath, [installerPath, ...(dryRun ? ["--dry-run"] : [])]);
+const hostResult = await runJson(process.execPath, [
+  installerPath,
+  ...(dryRun ? ["--dry-run"] : []),
+  ...(extensionId ? ["--extension-id", extensionId] : [])
+]);
 let extensionReload = { attempted: false, reloaded: false };
-if (!dryRun) {
+if (!dryRun && !hostOnly) {
   extensionReload = await reloadRunningExtension(hostResult.cliLauncherPath);
 }
 let codexResult = { skipped: true, reason: skipCodex ? "disabled by --no-codex" : "Codex CLI not found" };
@@ -46,11 +54,16 @@ if (!skipCodex && await commandExists("codex")) {
 }
 
 const browser = detectBrowser();
-if (!skipOpen && !dryRun && browser) {
+if (!skipOpen && !dryRun && !hostOnly && browser) {
   await execFileAsync("/usr/bin/open", ["-a", browser.application, browser.extensionsUrl]);
 }
 
-const next = extensionReload.reloaded
+const next = hostOnly
+  ? [
+      "Reload the store-installed Chromium Sidecar extension",
+      ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
+    ]
+  : extensionReload.reloaded
   ? [
       "Chromium Sidecar reloaded in the running browser",
       ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
@@ -65,7 +78,7 @@ const next = extensionReload.reloaded
 console.log(JSON.stringify({
   installed: !dryRun,
   dryRun,
-  extensionPath: installedExtensionDir,
+  extensionPath: hostOnly ? null : installedExtensionDir,
   extensionId: hostResult.extensionId,
   extensionReload,
   nativeHost: {
@@ -78,13 +91,14 @@ console.log(JSON.stringify({
 }, null, 2));
 
 async function installCodexPlugin() {
+  await installCodexMarketplace();
   const marketplaces = await runJson("codex", ["plugin", "marketplace", "list", "--json"]);
   const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "chromium-sidecar");
-  if (existingMarketplace && path.resolve(existingMarketplace.root) !== projectDir) {
+  if (existingMarketplace && path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
     await execFileAsync("codex", ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]);
   }
-  if (!existingMarketplace || path.resolve(existingMarketplace.root) !== projectDir) {
-    await execFileAsync("codex", ["plugin", "marketplace", "add", projectDir, "--json"]);
+  if (!existingMarketplace || path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
+    await execFileAsync("codex", ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
   }
 
   const plugins = await runJson("codex", ["plugin", "list", "--json"]);
@@ -93,7 +107,33 @@ async function installCodexPlugin() {
     await execFileAsync("codex", ["plugin", "remove", pluginId, "--json"]);
   }
   const installed = await runJson("codex", ["plugin", "add", pluginId, "--json"]);
-  return { skipped: false, pluginId, installed };
+  return { skipped: false, pluginId, marketplaceRoot: installedMarketplaceDir, installed };
+}
+
+async function installCodexMarketplace() {
+  const temporaryDir = `${installedMarketplaceDir}.tmp-${process.pid}`;
+  const backupDir = `${installedMarketplaceDir}.backup-${process.pid}`;
+  await rm(temporaryDir, { recursive: true, force: true });
+  await rm(backupDir, { recursive: true, force: true });
+  await mkdir(temporaryDir, { recursive: true, mode: 0o700 });
+  await cp(path.join(projectDir, ".agents"), path.join(temporaryDir, ".agents"), { recursive: true });
+  await cp(path.join(projectDir, "plugins"), path.join(temporaryDir, "plugins"), { recursive: true });
+
+  let backedUp = false;
+  try {
+    if (existsSync(installedMarketplaceDir)) {
+      await rename(installedMarketplaceDir, backupDir);
+      backedUp = true;
+    }
+    await rename(temporaryDir, installedMarketplaceDir);
+    await rm(backupDir, { recursive: true, force: true });
+  } catch (error) {
+    await rm(temporaryDir, { recursive: true, force: true });
+    if (backedUp && !existsSync(installedMarketplaceDir)) {
+      await rename(backupDir, installedMarketplaceDir);
+    }
+    throw error;
+  }
 }
 
 async function reloadRunningExtension(cliPath) {
@@ -133,4 +173,12 @@ async function commandExists(command) {
 async function runJson(command, commandArgs) {
   const { stdout } = await execFileAsync(command, commandArgs, { maxBuffer: 16 * 1024 * 1024 });
   return JSON.parse(stdout);
+}
+
+function argumentValue(name) {
+  const index = rawArgs.indexOf(name);
+  if (index < 0) return "";
+  const value = rawArgs[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`Missing value for ${name}`);
+  return value;
 }
