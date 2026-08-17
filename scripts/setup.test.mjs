@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("setup persists the Codex marketplace outside its source checkout", async () => {
+test("setup persists the Codex marketplace outside its source checkout", {
+  skip: process.platform !== "darwin"
+}, async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "chromium-sidecar-setup-"));
   const binDir = path.join(home, "test-bin");
   const codexPath = path.join(binDir, "codex");
