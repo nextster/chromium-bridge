@@ -44,7 +44,12 @@ let debuggerListenersRegistered = false;
 
 init();
 chrome.runtime.onStartup.addListener(init);
-chrome.runtime.onInstalled.addListener(init);
+chrome.runtime.onInstalled.addListener(details => {
+  void init();
+  if (details.reason === "install") {
+    void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html"), active: true });
+  }
+});
 chrome.permissions.onAdded.addListener(() => void sendHello());
 chrome.permissions.onRemoved.addListener(() => void sendHello());
 

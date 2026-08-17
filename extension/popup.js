@@ -30,6 +30,12 @@ $("revokeAccess").addEventListener("click", () => run(async () => {
 
 $("grantCookies").addEventListener("click", () => grantPermission("cookies"));
 $("grantDebugger").addEventListener("click", () => grantPermission("debugger"));
+$("openScriptSettings").addEventListener("click", () => run(async () => {
+  await chrome.tabs.create({
+    url: `chrome://extensions/?id=${chrome.runtime.id}`,
+    active: true
+  });
+}));
 
 $("reconnect").addEventListener("click", () => run(async () => {
   await command("native.reconnect", {});
@@ -102,6 +108,7 @@ async function refresh() {
     $("scriptsDetail").textContent = result.userScriptsAvailable
       ? "User scripts enabled"
       : "Enable Allow User Scripts in extension details";
+    $("openScriptSettings").classList.toggle("hidden", result.userScriptsAvailable);
     $("urlPattern").value = result.capture.urlPattern || "";
     $("allUrls").checked = Boolean(result.capture.allUrls);
     $("includeSecrets").checked = Boolean(result.capture.includeSecrets);

@@ -29,8 +29,8 @@ The extension does not contact a developer-operated server. It communicates with
 Requirements:
 
 - Chrome 138 or a compatible Chromium browser
-- macOS and Node.js 20+ for the current native companion installer
-- The open-source companion from github.com/nextster/chromium-sidecar
+- macOS for the current native companion installer
+- The one-command open-source companion from github.com/nextster/chromium-sidecar
 
 The source code, setup guide, privacy policy, and security model are public on GitHub.
 

@@ -9,12 +9,12 @@
 - [x] Website, cookie, and debugger access made optional where possible
 - [x] Redaction, capture limits, origin validation, and owner-only local storage
 - [x] Privacy policy, Limited Use statement, permission justifications, and reviewer instructions
-- [ ] Approved 128x128 icon and 440x280 small promotional image
+- [x] Reproducible 128x128 icon and 440x280 small promotional image
 - [ ] At least one 1280x800 or 640x400 screenshot of the real extension experience
 
 ## Draft item
 
-1. Add approved icons under `extension/icons`, then build `npm run package:store`.
+1. Build `npm run package:store`.
 2. Create the Chrome Web Store draft and upload the Store ZIP.
 3. Record the assigned item ID with `npm run configure:store -- ITEM_ID`.
 4. Commit and publish `store/item.json` before review so the companion automatically authorizes the Store extension.

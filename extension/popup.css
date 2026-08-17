@@ -10,6 +10,7 @@
 
 body {
   width: 380px;
+  max-width: 100%;
   margin: 0;
   background: #151719;
   color: #f2f4f5;
@@ -198,4 +199,13 @@ pre {
 
 .hidden {
   display: none;
+}
+
+@media (min-width: 600px) {
+  body {
+    width: 520px;
+    margin: 32px auto;
+    border: 1px solid #353a3e;
+    border-radius: 6px;
+  }
 }

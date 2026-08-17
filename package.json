@@ -14,10 +14,11 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "setup": "node scripts/setup.mjs",
+    "uninstall": "node scripts/uninstall.mjs",
     "install-host": "node native-host/src/install.mjs",
     "uninstall-host": "node native-host/src/install.mjs --uninstall",
     "sidecar": "node native-host/src/cli.mjs",
-    "test": "npm run check && node --test scripts/setup.test.mjs && npm --prefix native-host test && npm --prefix plugins/chromium-sidecar test && node scripts/setup.mjs --dry-run --no-codex --no-open",
+    "test": "npm run check && node --test scripts/*.test.mjs && npm --prefix native-host test && npm --prefix plugins/chromium-sidecar test && node scripts/setup.mjs --dry-run --no-codex --no-open",
     "package:extension": "node scripts/package-extension.mjs",
     "package:store": "node scripts/package-extension.mjs --store",
     "configure:store": "node scripts/configure-store.mjs"

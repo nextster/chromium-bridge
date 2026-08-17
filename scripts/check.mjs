@@ -10,9 +10,11 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, "..");
 const files = await listFiles(projectDir);
 const sourceFiles = files.filter(file => /\.(?:js|mjs)$/i.test(file));
+const shellFiles = files.filter(file => /\.sh$/i.test(file));
 const jsonFiles = files.filter(file => /\.json$/i.test(file));
 
 await Promise.all(sourceFiles.map(file => execFileAsync(process.execPath, ["--check", path.join(projectDir, file)])));
+await Promise.all(shellFiles.map(file => execFileAsync("/bin/sh", ["-n", path.join(projectDir, file)])));
 await Promise.all(jsonFiles.map(async file => JSON.parse(await readFile(path.join(projectDir, file), "utf8"))));
 
 const rootPackage = await readJson("package.json");
@@ -27,7 +29,7 @@ for (const [file, key] of versionFiles) {
   if (value !== rootPackage.version) throw new Error(`${file} version ${value} does not match ${rootPackage.version}`);
 }
 
-const textFiles = files.filter(file => /\.(?:js|mjs|json|md|html|css|yml|yaml)$/i.test(file));
+const textFiles = files.filter(file => /\.(?:js|mjs|sh|json|md|html|css|yml|yaml)$/i.test(file));
 for (const file of textFiles) {
   const text = await readFile(path.join(projectDir, file), "utf8");
   if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) {
@@ -38,7 +40,7 @@ for (const file of textFiles) {
   }
 }
 
-console.log(`Checked ${sourceFiles.length} JavaScript files, ${jsonFiles.length} JSON files, and ${textFiles.length} text files.`);
+console.log(`Checked ${sourceFiles.length} JavaScript files, ${shellFiles.length} shell files, ${jsonFiles.length} JSON files, and ${textFiles.length} text files.`);
 
 async function readJson(file) {
   return JSON.parse(await readFile(path.join(projectDir, file), "utf8"));

@@ -21,3 +21,7 @@ Chromium Sidecar trusts:
 It does not expose an HTTP or TCP server. The extension rejects browser-data commands until popup consent and website permission are present. Native browser providers apply the same consent gate.
 
 Raw cookie and capture modes intentionally expose sensitive data and should be enabled only for a specific task. Captures persist locally until purged.
+
+## Installer runtime
+
+The public shell installer prefers an existing Node.js 20+ executable. If none is available, it downloads a pinned macOS Node.js archive over HTTPS, verifies the architecture-specific SHA-256 embedded in `install.sh`, and installs it only under `~/.chromium-sidecar`. It does not use `sudo`, modify a global Node installation, or execute an unverified runtime archive.

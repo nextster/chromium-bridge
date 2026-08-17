@@ -75,11 +75,15 @@ async function validateStoreAssets() {
   for (const size of [16, 32, 48, 128]) {
     const filePath = path.join(extensionDir, "icons", `icon-${size}.png`);
     const bytes = await readRequiredAsset(filePath, "approved extension icon");
-    if (bytes.toString("ascii", 1, 4) !== "PNG") throw new Error(`${filePath} is not a PNG`);
-    if (bytes.readUInt32BE(16) !== size || bytes.readUInt32BE(20) !== size) {
-      throw new Error(`${filePath} must be ${size}x${size}`);
-    }
+    validatePngDimensions(filePath, bytes, size, size);
   }
+  const promoPath = path.join(projectDir, "store", "assets", "promo-small-440x280.png");
+  validatePngDimensions(
+    promoPath,
+    await readRequiredAsset(promoPath, "approved promotional image"),
+    440,
+    280
+  );
 }
 
 async function readRequiredAsset(filePath, label) {
@@ -90,6 +94,13 @@ async function readRequiredAsset(filePath, label) {
       throw new Error(`Store build blocked: missing ${label} at ${filePath}`);
     }
     throw error;
+  }
+}
+
+function validatePngDimensions(filePath, bytes, width, height) {
+  if (bytes.toString("ascii", 1, 4) !== "PNG") throw new Error(`${filePath} is not a PNG`);
+  if (bytes.readUInt32BE(16) !== width || bytes.readUInt32BE(20) !== height) {
+    throw new Error(`${filePath} must be ${width}x${height}`);
   }
 }
 

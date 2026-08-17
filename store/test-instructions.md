@@ -3,8 +3,7 @@
 Chromium Sidecar requires its open-source macOS Native Messaging companion. No account, payment, or test credentials are required.
 
 1. Install the submitted extension on Chrome 138 or newer on macOS.
-2. Clone `https://github.com/nextster/chromium-sidecar`.
-3. Run `npm run setup -- --host-only --extension-id ITEM_ID --no-codex --no-open`, replacing `ITEM_ID` with this Store item's ID.
+2. Run `curl -fsSL https://raw.githubusercontent.com/nextster/chromium-sidecar/main/install.sh | sh -s -- --host-only --extension-id ITEM_ID --no-codex --no-open --no-wait`, replacing `ITEM_ID` with this Store item's ID.
 4. Reload the extension.
 5. Open its popup, review the disclosure, and click **Enable local browser access**.
 6. In the extension details, enable **Allow User Scripts**.

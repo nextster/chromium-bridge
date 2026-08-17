@@ -15,20 +15,31 @@ The portable extension core handles tabs, compact page snapshots, interactions, 
 
 Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before using raw cookie or capture modes.
 
-## Install from source
+## One-command installation
 
 Requirements:
 
 - macOS
-- Node.js 20 or newer
 - Arc, Chrome, Chromium, Brave, Edge, or Vivaldi based on Chrome 138 or newer
-- Codex CLI, only if the Codex plugin is wanted
+- Codex CLI available as `codex`
 
-The shortest installer downloads the public repository into a temporary directory and removes it after setup:
+Run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-sidecar/main/install.sh | sh
 ```
+
+The installer:
+
+1. Uses an existing Node.js 20+ runtime, or installs a pinned and SHA-256-verified Node.js runtime under `~/.chromium-sidecar`.
+2. Installs the Native Messaging host and CLI for supported Chromium browsers.
+3. Copies the Codex marketplace to a persistent location and registers the Chromium Sidecar plugin.
+4. When a Store item ID is configured, opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
+5. Reports readiness after the browser bridge answers a live status check.
+
+No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. Restart Codex after first installation so it loads the plugin.
+
+Until `store/item.json` contains a published Store item ID, the same command installs the development extension under `~/.chromium-sidecar/extension` and opens the browser extensions page. Development mode still requires selecting **Load unpacked** once.
 
 To inspect the installer before running it:
 
@@ -38,7 +49,7 @@ less chromium-sidecar-install.sh
 sh chromium-sidecar-install.sh
 ```
 
-The equivalent manual installation is:
+The equivalent source installation is:
 
 ```bash
 git clone https://github.com/nextster/chromium-sidecar.git
@@ -46,7 +57,7 @@ cd chromium-sidecar
 npm run setup
 ```
 
-The setup command copies the unpacked extension and native runtime under `~/.chromium-sidecar`, registers the Native Messaging host, and installs the local Codex plugin when Codex is available.
+The setup command copies the unpacked extension and native runtime under `~/.chromium-sidecar`, registers the Native Messaging host, and installs the local Codex plugin.
 
 For a source build, complete these browser steps once:
 
@@ -56,19 +67,35 @@ For a source build, complete these browser steps once:
 4. Open the extension details and enable **Allow User Scripts**.
 5. Reload Codex after the plugin is installed.
 
-Run `npm run setup` again to update installed components. Useful options are `--no-open`, `--no-codex`, and `--dry-run`.
+Run the one-command installer again to update installed components. Source developers can use `npm run setup -- --source`. Useful options are `--no-open`, `--no-wait`, `--no-codex`, and `--dry-run`.
 
 ## Store installation
 
 The Chrome Web Store can distribute only the extension. The Native Messaging host and Codex plugin remain a separate local companion because browser stores cannot install native executables.
 
-After the store item is published, install it from the store and run:
+After the Store item is published and recorded in `store/item.json`, the normal one-command installer automatically uses Store mode. An explicit host-only installation remains available:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-sidecar/main/install.sh | sh -s -- --host-only
 ```
 
 Until `store/item.json` contains the final item ID, pass it explicitly with `--extension-id ITEM_ID`.
+
+## Update and uninstall
+
+Update by running the installation command again, or explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nextster/chromium-sidecar/main/install.sh | sh -s -- update
+```
+
+Remove the native host, CLI, development extension copy, portable runtime, and Codex plugin registration while preserving captures:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nextster/chromium-sidecar/main/install.sh | sh -s -- uninstall
+```
+
+Add `--purge` to delete captures and all remaining `~/.chromium-sidecar` data. The browser opens its extensions page because Chromium requires the user to remove the browser extension explicitly.
 
 ## What it exposes
 
@@ -115,7 +142,7 @@ Native Messaging host <-> Chromium Sidecar extension <-> Chromium APIs
 
 There is no HTTP server or listening TCP port. Chromium launches the native host over stdin/stdout; local clients use a private Unix socket.
 
-Node.js runs the Native Messaging host, CLI, installer, tests, and Codex MCP server. It is not a web server and does not expose a network port.
+Node.js runs the Native Messaging host, CLI, installer, tests, and Codex MCP server. It is not a web server and does not expose a network port. The installer uses a compatible system Node.js or a private verified runtime; it does not install Node globally.
 
 ## Store release
 
@@ -150,4 +177,4 @@ npm run package:extension
 npm run package:store
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for release and code-quality expectations. `npm run uninstall-host` removes host manifests and runtime launchers; captures remain until explicitly purged.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for release and code-quality expectations. `npm run uninstall` performs a local source-checkout uninstall; `npm run uninstall-host` removes only Native Messaging manifests and runtime launchers.
