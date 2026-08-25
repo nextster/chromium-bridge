@@ -3,13 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-const SERVER_NAME = "chromium-sidecar";
+const SERVER_NAME = "chromium-bridge";
 const SERVER_VERSION = "0.5.0";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
-  process.env.CHROMIUM_SIDECAR_SOCKET ||
+  process.env.CHROMIUM_BRIDGE_SOCKET ||
   process.env.ARC_CODEX_SOCKET ||
-  path.join(os.homedir(), ".chromium-sidecar", "control.sock")
+  path.join(os.homedir(), ".chromium-bridge", "control.sock")
 );
 const refMaps = new Map();
 const ownedTabIds = new Set();
@@ -35,8 +35,8 @@ const consequential = {
 };
 
 const tools = [
-  tool("status", "Troubleshoot Chromium Sidecar availability and capture state. Routine page work should start with snapshot instead.", {}, readOnly),
-  tool("reload_extension", "Reload Chromium Sidecar after its local files are updated. The bridge disconnects briefly while the browser restarts the extension.", {}, browserMutation),
+  tool("status", "Troubleshoot Chromium Bridge availability and capture state. Routine page work should start with snapshot instead.", {}, readOnly),
+  tool("reload_extension", "Reload Chromium Bridge after its local files are updated. The bridge disconnects briefly while the browser restarts the extension.", {}, browserMutation),
   tool("providers", "List optional browser-specific providers and their capabilities.", {}, readOnly),
   tool("arc_list_spaces", "List Arc windows, Spaces, and their tabs without changing focus.", {}, readOnly),
   tool("arc_focus_space", "Focus an Arc Space. This changes the user's visible browser context, so use it only when explicitly requested.", {
@@ -185,7 +185,7 @@ async function handleLine(line) {
           protocolVersion: message.params?.protocolVersion || DEFAULT_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-          instructions: "Use Chromium Sidecar for webpage interaction. Open new tabs in the background unless the user explicitly asks to see them, reuse explicit tabIds, and close agent-created tabs when done. Start routine work with snapshot; skip status and active_tab unless diagnosing or requesting metadata only."
+          instructions: "Use Chromium Bridge for webpage interaction. Open new tabs in the background unless the user explicitly asks to see them, reuse explicit tabIds, and close agent-created tabs when done. Start routine work with snapshot; skip status and active_tab unless diagnosing or requesting metadata only."
         });
         return;
       case "notifications/initialized":
@@ -588,7 +588,7 @@ class ControlClient {
         }
         this.handleDisconnect(socket, error);
       });
-      socket.once("close", () => this.handleDisconnect(socket, new Error("Chromium Sidecar control socket closed")));
+      socket.once("close", () => this.handleDisconnect(socket, new Error("Chromium Bridge control socket closed")));
     });
     return this.connecting;
   }
@@ -596,7 +596,7 @@ class ControlClient {
   handleData(chunk) {
     this.buffer += chunk;
     if (Buffer.byteLength(this.buffer, "utf8") > 96 * 1024 * 1024) {
-      this.handleDisconnect(this.socket, new Error("Chromium Sidecar control response exceeded 96 MiB"));
+      this.handleDisconnect(this.socket, new Error("Chromium Bridge control response exceeded 96 MiB"));
       this.socket?.destroy();
       return;
     }
@@ -978,7 +978,7 @@ function delay(ms) {
 
 function friendlyError(error) {
   if (["ENOENT", "ECONNREFUSED"].includes(error?.code)) {
-    return `Chromium Sidecar is unavailable at ${socketPath}. Start your browser and reload the Chromium Sidecar extension.`;
+    return `Chromium Bridge is unavailable at ${socketPath}. Start your browser and reload the Chromium Bridge extension.`;
   }
   return String(error?.message || error);
 }

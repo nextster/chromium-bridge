@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "chromium-sidecar": {
+    "chromium-bridge": {
       "command": "node",
       "args": ["./mcp/server.mjs"],
       "cwd": "."

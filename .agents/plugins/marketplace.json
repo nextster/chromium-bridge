@@ -1,14 +1,14 @@
 {
-  "name": "chromium-sidecar",
+  "name": "chromium-bridge",
   "interface": {
-    "displayName": "Chromium Sidecar"
+    "displayName": "Chromium Bridge"
   },
   "plugins": [
     {
-      "name": "chromium-sidecar",
+      "name": "chromium-bridge",
       "source": {
         "source": "local",
-        "path": "./plugins/chromium-sidecar"
+        "path": "./plugins/chromium-bridge"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -8,7 +8,7 @@ import {
   redactUrl
 } from "./capture-safety.js";
 
-const NATIVE_HOST_NAME = "com.chromium_sidecar.bridge";
+const NATIVE_HOST_NAME = "com.chromium_bridge.bridge";
 const EXTENSION_VERSION = "0.5.0";
 const PRIVACY_CONSENT_VERSION = 1;
 const MAX_SCRIPT_CHARS = 512 * 1024;
@@ -250,7 +250,7 @@ async function sendHello() {
     type: "hello",
     extension: {
       id: chrome.runtime.id,
-      name: "Chromium Sidecar",
+      name: "Chromium Bridge",
       version: EXTENSION_VERSION,
       ...(privacyState().consented ? { userAgent: navigator.userAgent } : {})
     },
@@ -285,7 +285,7 @@ async function handleCommand(message, context = {}) {
       requirePopup(context);
       const permissions = await permissionState();
       if (!permissions.siteAccess || !permissions.tabs) {
-        throw new Error("Grant access to websites before enabling Chromium Sidecar");
+        throw new Error("Grant access to websites before enabling Chromium Bridge");
       }
       await storageSet({ privacyConsentVersion: PRIVACY_CONSENT_VERSION });
       privacyConsentVersion = PRIVACY_CONSENT_VERSION;
@@ -372,7 +372,7 @@ async function handleCommand(message, context = {}) {
 
 async function executeUserScript(params) {
   if (!await userScriptsAvailable()) {
-    throw new Error("Allow User Scripts is disabled for Chromium Sidecar");
+    throw new Error("Allow User Scripts is disabled for Chromium Bridge");
   }
   const tabId = await getTabId(params.tabId);
   const code = requiredBoundedString(params.code, "code", MAX_SCRIPT_CHARS);
@@ -602,17 +602,17 @@ async function permissionState() {
 
 async function requireBrowserAccess() {
   if (!privacyState().consented) {
-    throw new Error("Open the Chromium Sidecar popup and approve local browser access first");
+    throw new Error("Open the Chromium Bridge popup and approve local browser access first");
   }
   const permissions = await permissionState();
   if (!permissions.siteAccess || !permissions.tabs) {
-    throw new Error("Chromium Sidecar no longer has website access; grant it again from the popup");
+    throw new Error("Chromium Bridge no longer has website access; grant it again from the popup");
   }
 }
 
 async function requireOptionalPermission(permission) {
   if (!await chrome.permissions.contains({ permissions: [permission] })) {
-    throw new Error(`Enable optional ${permission} access from the Chromium Sidecar popup first`);
+    throw new Error(`Enable optional ${permission} access from the Chromium Bridge popup first`);
   }
 }
 

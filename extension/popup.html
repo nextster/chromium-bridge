@@ -3,26 +3,26 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Chromium Sidecar</title>
+    <title>Chromium Bridge</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <header>
       <div class="brand">
-        <h1>Chromium Sidecar</h1>
+        <h1>Chromium Bridge</h1>
       </div>
       <div id="status" class="status">checking</div>
     </header>
 
     <section id="consentPanel" class="consent hidden">
       <h2>Local browser access</h2>
-      <p>Chromium Sidecar lets local tools you install read and control websites in this browser profile.</p>
+      <p>Chromium Bridge lets local tools you install read and control websites in this browser profile.</p>
       <ul>
         <li>Page content, URLs, and browser interactions may be sent to the local Native Messaging host.</li>
         <li>Cookies and DevTools access are separate optional permissions.</li>
         <li>The extension has no developer-operated server. Your local tools decide where their outputs are processed.</li>
       </ul>
-      <p><a href="https://github.com/nextster/chromium-sidecar/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy policy</a></p>
+      <p><a href="https://github.com/nextster/chromium-bridge/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy policy</a></p>
       <button id="enableAccess" class="primary wide">Enable local browser access</button>
       <div id="consentError" class="detail error" aria-live="polite"></div>
     </section>
@@ -72,7 +72,7 @@
       </section>
 
       <section class="footer-actions">
-        <a href="https://github.com/nextster/chromium-sidecar/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy</a>
+        <a href="https://github.com/nextster/chromium-bridge/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy</a>
         <button id="revokeAccess" class="text-button">Revoke browser access</button>
       </section>
     </main>

@@ -31,7 +31,7 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - run: sh -n install.sh
-      - run: CHROMIUM_SIDECAR_SOURCE_DIR="$PWD" sh install.sh --dry-run --no-codex --no-open
+      - run: CHROMIUM_BRIDGE_SOURCE_DIR="$PWD" sh install.sh --dry-run --no-codex --no-open
       - run: npm run package:extension
       - run: npm run package:store
 
@@ -48,4 +48,4 @@ jobs:
       - run: npm ci
       - run: node --test scripts/setup.test.mjs
       - run: sh -n install.sh
-      - run: CHROMIUM_SIDECAR_SOURCE_DIR="$PWD" sh install.sh --dry-run --no-codex --no-open
+      - run: CHROMIUM_BRIDGE_SOURCE_DIR="$PWD" sh install.sh --dry-run --no-codex --no-open

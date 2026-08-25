@@ -12,7 +12,7 @@ Do not include real cookies, authorization headers, capture files, or private br
 
 ## Trust boundary
 
-Chromium Sidecar trusts:
+Chromium Bridge trusts:
 
 - The extension IDs listed in the installed Native Messaging manifest
 - Local processes running as the same operating-system account that can access the owner-only control socket
@@ -24,4 +24,4 @@ Raw cookie and capture modes intentionally expose sensitive data and should be e
 
 ## Installer runtime
 
-The public shell installer prefers an existing Node.js 20+ executable. If none is available, it downloads a pinned macOS Node.js archive over HTTPS, verifies the architecture-specific SHA-256 embedded in `install.sh`, and installs it only under `~/.chromium-sidecar`. It does not use `sudo`, modify a global Node installation, or execute an unverified runtime archive.
+The public shell installer prefers an existing Node.js 20+ executable. If none is available, it downloads a pinned macOS Node.js archive over HTTPS, verifies the architecture-specific SHA-256 embedded in `install.sh`, and installs it only under `~/.chromium-bridge`. It does not use `sudo`, modify a global Node installation, or execute an unverified runtime archive.

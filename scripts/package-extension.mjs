@@ -14,7 +14,7 @@ const distDir = path.join(projectDir, "dist");
 const storeBuild = process.argv.includes("--store");
 const manifest = JSON.parse(await readFile(path.join(extensionDir, "manifest.json"), "utf8"));
 const label = storeBuild ? "store" : "development";
-const outputPath = path.join(distDir, `chromium-sidecar-${label}-${manifest.version}.zip`);
+const outputPath = path.join(distDir, `chromium-bridge-${label}-${manifest.version}.zip`);
 const stageDir = path.join(distDir, `.extension-stage-${process.pid}`);
 
 validateManifest(manifest);
@@ -60,7 +60,7 @@ function validateManifest(value) {
   if (value.manifest_version !== 3) throw new Error("Chrome Web Store builds must use Manifest V3");
   if (Number(value.minimum_chrome_version) < 138) throw new Error("minimum_chrome_version must be at least 138");
   if (!value.description || value.description.length > 132) throw new Error("Manifest description must be 1-132 characters");
-  if (value.permissions?.includes("activeTab")) throw new Error("activeTab is redundant with Sidecar website access");
+  if (value.permissions?.includes("activeTab")) throw new Error("activeTab is redundant with Bridge website access");
   for (const permission of ["tabs", "cookies", "debugger"]) {
     if (value.permissions?.includes(permission)) throw new Error(`${permission} must remain optional`);
   }

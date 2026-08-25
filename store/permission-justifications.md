@@ -4,7 +4,7 @@ Use these descriptions in the Chrome Web Store Privacy practices tab.
 
 ## `nativeMessaging`
 
-Connects the extension to the user-installed Chromium Sidecar companion on the same computer. This local bridge is the extension's single purpose and replaces any remote web service.
+Connects the extension to the user-installed Chromium Bridge companion on the same computer. This local bridge is the extension's single purpose and replaces any remote web service.
 
 ## `storage`
 
@@ -36,7 +36,7 @@ Supports an advanced, explicitly enabled network-debugging mode for response cap
 
 ## Remote code declaration
 
-Select **Yes**. Chromium Sidecar accepts user-supplied JavaScript from the user-installed local companion and executes it through `chrome.userScripts`. This is the extension's disclosed developer-tool purpose. The extension does not download executable JavaScript or WebAssembly from developer-controlled servers, and no third-party library is loaded at runtime.
+Select **Yes**. Chromium Bridge accepts user-supplied JavaScript from the user-installed local companion and executes it through `chrome.userScripts`. This is the extension's disclosed developer-tool purpose. The extension does not download executable JavaScript or WebAssembly from developer-controlled servers, and no third-party library is loaded at runtime.
 
 ## Data-use disclosures
 

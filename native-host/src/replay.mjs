@@ -81,7 +81,7 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
       values.forEach((rawValue, valueIndex) => {
         const value = String(rawValue ?? "");
         if (REDACTED.test(value)) {
-          const variable = `SIDECAR_FORM_${requestIndex}_${slug(key)}_${valueIndex + 1}`;
+          const variable = `BRIDGE_FORM_${requestIndex}_${slug(key)}_${valueIndex + 1}`;
           variables.add(variable);
           args.push(`${option} ${withEnvironmentValue(`${key}=`, variable)}`);
         } else {
@@ -93,7 +93,7 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
   }
 
   if (body.kind === "redacted") {
-    const variable = `SIDECAR_BODY_${requestIndex}`;
+    const variable = `BRIDGE_BODY_${requestIndex}`;
     variables.add(variable);
     args.push(`--data-binary ${dq(`\${${variable}}`)}`);
     return;
@@ -104,7 +104,7 @@ function addBodyArgs(args, variables, body, contentType, requestIndex) {
   const textOnly = parts.every(part => typeof part?.text === "string");
   const text = textOnly ? parts.map(part => part.text).join("") : "";
   if (!textOnly || REDACTED.test(text)) {
-    const variable = `SIDECAR_BODY_${requestIndex}`;
+    const variable = `BRIDGE_BODY_${requestIndex}`;
     variables.add(variable);
     args.push(`--data-binary ${dq(`\${${variable}}`)}`);
   } else if (text) {
@@ -117,7 +117,7 @@ function headerValue(headers, wantedName) {
 }
 
 function headerVariable(name) {
-  return /^cookie$/i.test(name) ? "SIDECAR_COOKIE" : `SIDECAR_HEADER_${slug(name)}`;
+  return /^cookie$/i.test(name) ? "BRIDGE_COOKIE" : `BRIDGE_HEADER_${slug(name)}`;
 }
 
 function withEnvironmentValue(prefix, variable) {

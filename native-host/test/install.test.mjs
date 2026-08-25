@@ -5,7 +5,7 @@ import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { EXTENSION_ID, LEGACY_NATIVE_HOST_NAME, NATIVE_HOST_NAME } from "../src/constants.mjs";
+import { EXTENSION_ID, NATIVE_HOST_NAME, OBSOLETE_NATIVE_HOST_NAMES } from "../src/constants.mjs";
 
 const execFileAsync = promisify(execFile);
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -28,11 +28,13 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
     "Vivaldi"
   ]);
   assert.equal(result.hostManifestPaths.length, 6);
-  assert.match(result.hostManifestPaths[0], /Arc\/User Data\/NativeMessagingHosts\/com\.chromium_sidecar\.bridge\.json$/);
-  assert.match(result.hostManifestPaths[1], /Google\/Chrome\/NativeMessagingHosts\/com\.chromium_sidecar\.bridge\.json$/);
-  assert.equal(result.legacyHostManifest.name, LEGACY_NATIVE_HOST_NAME);
-  assert.equal(result.legacyHostManifestPaths.length, 6);
-  assert.match(result.installedHostPath, /\.chromium-sidecar\/runtime\/host\.mjs$/);
+  assert.match(result.hostManifestPaths[0], /Arc\/User Data\/NativeMessagingHosts\/com\.chromium_bridge\.bridge\.json$/);
+  assert.match(result.hostManifestPaths[1], /Google\/Chrome\/NativeMessagingHosts\/com\.chromium_bridge\.bridge\.json$/);
+  assert.equal(result.obsoleteHostManifestPaths.length, 12);
+  assert.ok(OBSOLETE_NATIVE_HOST_NAMES.every(name =>
+    result.obsoleteHostManifestPaths.some(filePath => filePath.endsWith(`${name}.json`))
+  ));
+  assert.match(result.installedHostPath, /\.chromium-bridge\/runtime\/host\.mjs$/);
   assert.deepEqual(result.runtimeFiles, [
     "arc-provider.mjs",
     "cli.mjs",

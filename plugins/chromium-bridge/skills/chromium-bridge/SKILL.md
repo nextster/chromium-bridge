@@ -1,19 +1,19 @@
 ---
-name: chromium-sidecar
-description: Use for every task that requires interacting with a website or browser. Controls the user's existing authenticated Chromium browser through Chromium Sidecar.
+name: chromium-bridge
+description: Use for every task that requires interacting with a website or browser. Controls the user's existing authenticated Chromium browser through Chromium Bridge.
 ---
 
-# Chromium Sidecar
+# Chromium Bridge
 
-Use the `chromium-sidecar` MCP server for all webpage and browser interaction.
+Use the `chromium-bridge` MCP server for all webpage and browser interaction.
 
 ## Routing
 
-- Use Chromium Sidecar for navigation, page inspection, clicks, form filling, screenshots, tabs, cookies, JavaScript, and network capture.
+- Use Chromium Bridge for navigation, page inspection, clicks, form filling, screenshots, tabs, cookies, JavaScript, and network capture.
 - Do not switch to Playwright, another browser plugin, an in-app browser, or Computer Use for webpage interaction.
-- If the sidecar is unavailable, ask the user to start their supported Chromium browser or reload the Chromium Sidecar extension. Do not silently fall back to another browser backend.
+- If the bridge is unavailable, ask the user to start their supported Chromium browser or reload the Chromium Bridge extension. Do not silently fall back to another browser backend.
 - If a tool reports that browser access is not approved, ask the user to open the extension popup and approve local browser access. Do not attempt to bypass the consent gate.
-- Computer Use remains appropriate for non-browser desktop applications. If browser chrome itself is not exposed by the sidecar, explain that limitation instead of switching backends.
+- Computer Use remains appropriate for non-browser desktop applications. If browser chrome itself is not exposed by the bridge, explain that limitation instead of switching backends.
 
 ## Fast Path
 
@@ -22,7 +22,7 @@ Use the `chromium-sidecar` MCP server for all webpage and browser interaction.
 3. Reuse refs until navigation or a substantial DOM replacement. Do not snapshot again merely to reconfirm an unchanged page.
 4. Set `snapshotAfter: true` on `click`, `fill`, or `select` when the immediate result must be inspected. Use `settleMs` only when the page needs a short render delay.
 5. For asynchronous updates, call `wait_for` with `snapshotAfter: true` so waiting and inspection happen in one tool call.
-6. Use `list_tabs` only to select a non-active tab. Use `active_tab` only when metadata is needed without page content. Use `status` only after a sidecar error or for explicit diagnostics.
+6. Use `list_tabs` only to select a non-active tab. Use `active_tab` only when metadata is needed without page content. Use `status` only after a bridge error or for explicit diagnostics.
 7. Use snapshot defaults first. Increase `maxElements` or `maxTextChars` only when needed content was truncated; request `includeRects` only for coordinate or layout questions.
 8. Take screenshots only when visual evidence matters. Keep the fast JPEG default; request PNG only for pixel-exact or small-text inspection.
 

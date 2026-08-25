@@ -14,18 +14,25 @@ const purge = args.has("--purge");
 const skipCodex = args.has("--no-codex");
 const skipOpen = args.has("--no-open");
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const legacyStateDir = path.join(os.homedir(), ".chromium-sidecar");
 const stateDir = path.resolve(
-  process.env.CHROMIUM_SIDECAR_STATE_DIR || path.join(os.homedir(), ".chromium-sidecar")
+  process.env.CHROMIUM_BRIDGE_STATE_DIR || path.join(os.homedir(), ".chromium-bridge")
 );
+const stateDirs = [
+  stateDir,
+  ...(!process.env.CHROMIUM_BRIDGE_STATE_DIR && path.resolve(legacyStateDir) !== stateDir ? [legacyStateDir] : [])
+];
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
 const removedCodex = [];
 
 if (process.platform !== "darwin" && !dryRun) {
-  throw new Error("Chromium Sidecar uninstallation currently supports macOS only.");
+  throw new Error("Chromium Bridge uninstallation currently supports macOS only.");
 }
 
 if (!skipCodex && await commandExists("codex")) {
   for (const command of [
+    ["plugin", "remove", "chromium-bridge@chromium-bridge", "--json"],
+    ["plugin", "marketplace", "remove", "chromium-bridge", "--json"],
     ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
     ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]
   ]) {
@@ -43,21 +50,29 @@ const nativeHost = JSON.parse((await execFileAsync(process.execPath, [
   ...(dryRun ? ["--dry-run"] : [])
 ])).stdout);
 
-const retainedCaptures = !purge && existsSync(path.join(stateDir, "captures"));
+const retainedCaptureDirs = purge
+  ? []
+  : stateDirs.map(directory => path.join(directory, "captures")).filter(existsSync);
+const retainedCaptures = retainedCaptureDirs.length > 0;
 if (!dryRun) {
   if (purge) {
-    await rm(stateDir, { recursive: true, force: true });
+    await Promise.all(stateDirs.map(directory => rm(directory, { recursive: true, force: true })));
   } else {
-    for (const entry of [
-      "bin",
-      "codex-marketplace",
-      "current.json",
-      "control.sock",
-      "extension",
-      "node",
-      "runtime"
-    ]) {
-      await rm(path.join(stateDir, entry), { recursive: true, force: true });
+    for (const directory of stateDirs) {
+      for (const entry of [
+        "bin",
+        "codex-marketplace",
+        "current.json",
+        "control.sock",
+        "extension",
+        "node",
+        "runtime"
+      ]) {
+        await rm(path.join(directory, entry), { recursive: true, force: true });
+      }
+      if (!existsSync(path.join(directory, "captures"))) {
+        await rm(directory, { recursive: true, force: true });
+      }
     }
   }
 }
@@ -74,13 +89,15 @@ console.log(JSON.stringify({
   dryRun,
   purged: purge && !dryRun,
   stateDir,
+  stateDirs,
   retainedCaptures,
+  retainedCaptureDirs,
   nativeHost,
   codex: removedCodex,
   next: [
-    "Remove Chromium Sidecar from the browser extensions page that was opened",
+    "Remove Chromium Bridge from the browser extensions page that was opened",
     "Restart Codex",
-    ...(retainedCaptures ? [`Captures remain under ${path.join(stateDir, "captures")}`] : [])
+    ...retainedCaptureDirs.map(directory => `Captures remain under ${directory}`)
   ]
 }, null, 2));
 

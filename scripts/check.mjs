@@ -21,8 +21,8 @@ const rootPackage = await readJson("package.json");
 const versionFiles = [
   ["extension/manifest.json", "version"],
   ["native-host/package.json", "version"],
-  ["plugins/chromium-sidecar/package.json", "version"],
-  ["plugins/chromium-sidecar/.codex-plugin/plugin.json", "version"]
+  ["plugins/chromium-bridge/package.json", "version"],
+  ["plugins/chromium-bridge/.codex-plugin/plugin.json", "version"]
 ];
 for (const [file, key] of versionFiles) {
   const value = (await readJson(file))[key];

@@ -1,13 +1,13 @@
 {
-  "name": "chromium-sidecar",
-  "version": "0.5.0",
-  "description": "Control an authenticated Chromium browser through a local Native Messaging sidecar.",
+  "name": "chromium-bridge",
+  "version": "0.6.0",
+  "description": "Control an authenticated Chromium browser through a local Native Messaging bridge.",
   "author": {
     "name": "Artem"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "Chromium Sidecar",
+    "displayName": "Chromium Bridge",
     "shortDescription": "Control an authenticated Chromium browser",
     "longDescription": "Inspect and operate Chromium tabs, run page scripts, capture screenshots, record network traffic, and use optional browser-specific providers such as Arc Spaces.",
     "developerName": "Artem",
@@ -19,7 +19,7 @@
     ],
     "defaultPrompt": [
       "Inspect the active browser tab.",
-      "Use Chromium Sidecar to complete this browser workflow.",
+      "Use Chromium Bridge to complete this browser workflow.",
       "Capture and explain this page's API calls."
     ]
   },

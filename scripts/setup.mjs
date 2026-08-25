@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -20,8 +20,9 @@ const extensionId = argumentValue("--extension-id");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, "..");
 const sourceExtensionDir = path.join(projectDir, "extension");
+const legacyStateDir = path.join(os.homedir(), ".chromium-sidecar");
 const stateDir = path.resolve(
-  process.env.CHROMIUM_SIDECAR_STATE_DIR || path.join(os.homedir(), ".chromium-sidecar")
+  process.env.CHROMIUM_BRIDGE_STATE_DIR || path.join(os.homedir(), ".chromium-bridge")
 );
 const installedExtensionDir = path.join(stateDir, "extension");
 const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
@@ -31,7 +32,7 @@ const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
 const storeMode = Boolean(configuredStoreExtensionId) && !sourceMode;
 const hostOnly = requestedHostOnly || storeMode;
 const storeUrl = configuredStoreExtensionId
-  ? `https://chromewebstore.google.com/detail/chromium-sidecar/${configuredStoreExtensionId}`
+  ? `https://chromewebstore.google.com/detail/chromium-bridge/${configuredStoreExtensionId}`
   : "";
 
 if (process.platform !== "darwin" && !dryRun) {
@@ -41,12 +42,19 @@ if (Number(process.versions.node.split(".")[0]) < 20) {
   throw new Error(`Node.js 20 or newer is required; found ${process.version}`);
 }
 
+const migration = await migrateLegacyState();
+
 if (!dryRun && !hostOnly) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   await rm(temporaryExtensionDir, { recursive: true, force: true });
   await cp(sourceExtensionDir, temporaryExtensionDir, { recursive: true });
   await rm(installedExtensionDir, { recursive: true, force: true });
   await rename(temporaryExtensionDir, installedExtensionDir);
+  if (migration.migrated && path.resolve(migration.from) === path.resolve(legacyStateDir)) {
+    await mkdir(legacyStateDir, { recursive: true, mode: 0o700 });
+    await rm(path.join(legacyStateDir, "extension"), { recursive: true, force: true });
+    await symlink(installedExtensionDir, path.join(legacyStateDir, "extension"), "dir");
+  }
 }
 
 const hostResult = await runJson(process.execPath, [
@@ -68,7 +76,7 @@ if (!skipCodex && codexAvailable) {
 
 const browser = detectBrowser();
 if (!skipOpen && !dryRun && storeMode && browser) {
-  console.error(`Opening the Chromium Sidecar Store listing in ${browser.application}...`);
+  console.error(`Opening the Chromium Bridge Store listing in ${browser.application}...`);
   await execFileAsync("/usr/bin/open", ["-a", browser.application, storeUrl]);
 } else if (!skipOpen && !dryRun && !hostOnly && browser) {
   await execFileAsync("/usr/bin/open", ["-a", browser.application, browser.extensionsUrl]);
@@ -80,22 +88,22 @@ if (!dryRun && storeMode && waitForBrowser) {
 }
 
 const next = readiness?.ready
-  ? ["Chromium Sidecar is ready. Start a new Codex task to use it."]
+  ? ["Chromium Bridge is ready. Start a new Codex task to use it."]
   : storeMode
   ? [
-      `Install Chromium Sidecar from ${storeUrl}`,
+      `Install Chromium Bridge from ${storeUrl}`,
       "Approve local browser access in the onboarding page",
       "Enable Allow User Scripts in the extension details",
       ...(!skipCodex && !codexResult.skipped ? ["Restart Codex to activate the plugin"] : [])
     ]
   : hostOnly
   ? [
-      "Reload the store-installed Chromium Sidecar extension",
+      "Reload the store-installed Chromium Bridge extension",
       ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
     ]
   : extensionReload.reloaded
   ? [
-      "Chromium Sidecar reloaded in the running browser",
+      "Chromium Bridge reloaded in the running browser",
       ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
     ]
   : [
@@ -120,29 +128,74 @@ console.log(JSON.stringify({
     node: hostResult.nodePath
   },
   codex: codexResult,
+  migration,
   readiness,
   next
 }, null, 2));
 if (readiness && !readiness.ready) process.exitCode = 2;
 
 async function installCodexPlugin(nodePath) {
+  const removedObsolete = [];
+  for (const command of [
+    ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
+    ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]
+  ]) {
+    removedObsolete.push(await runOptional("codex", command));
+  }
   await installCodexMarketplace(nodePath);
   const marketplaces = await runJson("codex", ["plugin", "marketplace", "list", "--json"]);
-  const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "chromium-sidecar");
+  const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "chromium-bridge");
   if (existingMarketplace && path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    await execFileAsync("codex", ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]);
+    await execFileAsync("codex", ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]);
   }
   if (!existingMarketplace || path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
     await execFileAsync("codex", ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
   }
 
   const plugins = await runJson("codex", ["plugin", "list", "--json"]);
-  const pluginId = "chromium-sidecar@chromium-sidecar";
+  const pluginId = "chromium-bridge@chromium-bridge";
   if (plugins.installed?.some(item => item.pluginId === pluginId)) {
     await execFileAsync("codex", ["plugin", "remove", pluginId, "--json"]);
   }
   const installed = await runJson("codex", ["plugin", "add", pluginId, "--json"]);
-  return { skipped: false, pluginId, marketplaceRoot: installedMarketplaceDir, installed };
+  return { skipped: false, pluginId, marketplaceRoot: installedMarketplaceDir, removedObsolete, installed };
+}
+
+async function migrateLegacyState() {
+  if (process.env.CHROMIUM_BRIDGE_STATE_DIR || path.resolve(legacyStateDir) === stateDir) {
+    return { needed: false, skipped: true, reason: "custom state directory" };
+  }
+  const preMigratedFrom = String(process.env.CHROMIUM_BRIDGE_MIGRATION_SOURCE || "").trim();
+  if (preMigratedFrom) {
+    return { needed: true, migrated: true, moved: true, beforeSetup: true, from: preMigratedFrom, to: stateDir };
+  }
+  if (!existsSync(legacyStateDir)) return { needed: false, migrated: false };
+  if (dryRun) return { needed: true, migrated: false, dryRun: true, from: legacyStateDir, to: stateDir };
+
+  if (!existsSync(stateDir)) {
+    await rename(legacyStateDir, stateDir);
+    return { needed: true, migrated: true, moved: true, from: legacyStateDir, to: stateDir };
+  }
+
+  let captures = null;
+  const sourceCaptures = path.join(legacyStateDir, "captures");
+  if (existsSync(sourceCaptures)) {
+    captures = path.join(stateDir, "captures", `imported-before-rename-${Date.now()}`);
+    await mkdir(path.dirname(captures), { recursive: true, mode: 0o700 });
+    await cp(sourceCaptures, captures, { recursive: true });
+  }
+
+  const runningFromLegacyState = path.resolve(process.execPath).startsWith(`${path.resolve(legacyStateDir)}${path.sep}`);
+  if (!runningFromLegacyState) await rm(legacyStateDir, { recursive: true, force: true });
+  return {
+    needed: true,
+    migrated: true,
+    merged: true,
+    from: legacyStateDir,
+    to: stateDir,
+    captures,
+    legacyRuntimeRetained: runningFromLegacyState
+  };
 }
 
 async function installCodexMarketplace(nodePath) {
@@ -153,9 +206,9 @@ async function installCodexMarketplace(nodePath) {
   await mkdir(temporaryDir, { recursive: true, mode: 0o700 });
   await cp(path.join(projectDir, ".agents"), path.join(temporaryDir, ".agents"), { recursive: true });
   await cp(path.join(projectDir, "plugins"), path.join(temporaryDir, "plugins"), { recursive: true });
-  const mcpPath = path.join(temporaryDir, "plugins", "chromium-sidecar", ".mcp.json");
+  const mcpPath = path.join(temporaryDir, "plugins", "chromium-bridge", ".mcp.json");
   const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8"));
-  mcpConfig.mcpServers["chromium-sidecar"].command = nodePath;
+  mcpConfig.mcpServers["chromium-bridge"].command = nodePath;
   await writeFile(mcpPath, `${JSON.stringify(mcpConfig, null, 2)}\n`, { mode: 0o600 });
 
   let backedUp = false;
@@ -208,7 +261,7 @@ async function waitUntilReady(cliPath, timeoutSeconds) {
 function readinessStep(extension) {
   if (!extension?.pong) return "Install the extension from the Store page.";
   if (!extension.privacy?.consented || !extension.permissions?.siteAccess || !extension.permissions?.tabs) {
-    return "Approve local browser access in the Chromium Sidecar onboarding page.";
+    return "Approve local browser access in the Chromium Bridge onboarding page.";
   }
   if (!extension.userScriptsAvailable) {
     return "Open extension details and enable Allow User Scripts.";
@@ -256,6 +309,27 @@ async function runJson(command, commandArgs, timeout) {
     ...(timeout ? { timeout } : {})
   });
   return JSON.parse(stdout);
+}
+
+async function runOptional(command, commandArgs) {
+  try {
+    const { stdout } = await execFileAsync(command, commandArgs);
+    return { command: commandArgs, removed: true, output: parseJson(stdout) };
+  } catch (error) {
+    return {
+      command: commandArgs,
+      removed: false,
+      reason: String(error?.stderr || error?.message || error).trim()
+    };
+  }
+}
+
+function parseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return String(value || "").trim();
+  }
 }
 
 async function readStoreExtensionId() {

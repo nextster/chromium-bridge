@@ -2,7 +2,7 @@
 
 ## Name
 
-Chromium Sidecar
+Chromium Bridge
 
 ## Summary
 
@@ -18,7 +18,7 @@ English
 
 ## Detailed description
 
-Chromium Sidecar connects local tools that you install and control to the Chromium browser session you already use.
+Chromium Bridge connects local tools that you install and control to the Chromium browser session you already use.
 
 Use it to inspect tabs, read compact page snapshots, navigate, click, fill forms, run user-supplied scripts, take screenshots, and perform explicitly enabled network debugging. The included local companion provides a command-line interface and a Codex MCP integration. Arc users can optionally list and focus Spaces on macOS.
 
@@ -30,7 +30,7 @@ Requirements:
 
 - Chrome 138 or a compatible Chromium browser
 - macOS for the current native companion installer
-- The one-command open-source companion from github.com/nextster/chromium-sidecar
+- The one-command open-source companion from github.com/nextster/chromium-bridge
 
 The source code, setup guide, privacy policy, and security model are public on GitHub.
 
@@ -40,6 +40,6 @@ Connect user-authorized local tools to the user's Chromium browser so those tool
 
 ## Support and policy URLs
 
-- Homepage: https://github.com/nextster/chromium-sidecar
-- Support: https://github.com/nextster/chromium-sidecar/issues
-- Privacy: https://github.com/nextster/chromium-sidecar/blob/main/PRIVACY.md
+- Homepage: https://github.com/nextster/chromium-bridge
+- Support: https://github.com/nextster/chromium-bridge/issues
+- Privacy: https://github.com/nextster/chromium-bridge/blob/main/PRIVACY.md

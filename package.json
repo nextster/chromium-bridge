@@ -1,7 +1,7 @@
 {
-  "name": "chromium-sidecar",
-  "version": "0.5.0",
-  "description": "Local agent sidecar for authenticated Chromium browsers, with a Codex plugin and optional Arc Spaces support.",
+  "name": "chromium-bridge",
+  "version": "0.6.0",
+  "description": "Local agent bridge for authenticated Chromium browsers, with a Codex plugin and optional Arc Spaces support.",
   "type": "module",
   "license": "MIT",
   "private": true,
@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "bin": {
-    "chromium-sidecar": "./native-host/src/cli.mjs"
+    "chromium-bridge": "./native-host/src/cli.mjs"
   },
   "scripts": {
     "check": "node scripts/check.mjs",
@@ -17,8 +17,8 @@
     "uninstall": "node scripts/uninstall.mjs",
     "install-host": "node native-host/src/install.mjs",
     "uninstall-host": "node native-host/src/install.mjs --uninstall",
-    "sidecar": "node native-host/src/cli.mjs",
-    "test": "npm run check && node --test scripts/*.test.mjs && npm --prefix native-host test && npm --prefix plugins/chromium-sidecar test && node scripts/setup.mjs --dry-run --no-codex --no-open",
+    "bridge": "node native-host/src/cli.mjs",
+    "test": "npm run check && node --test scripts/*.test.mjs && npm --prefix native-host test && npm --prefix plugins/chromium-bridge test && node scripts/setup.mjs --dry-run --no-codex --no-open",
     "package:extension": "node scripts/package-extension.mjs",
     "package:store": "node scripts/package-extension.mjs --store",
     "configure:store": "node scripts/configure-store.mjs"

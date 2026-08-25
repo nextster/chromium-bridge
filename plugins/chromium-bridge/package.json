@@ -1,6 +1,6 @@
 {
-  "name": "chromium-sidecar-codex-plugin",
-  "version": "0.5.0",
+  "name": "chromium-bridge-codex-plugin",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {

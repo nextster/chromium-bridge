@@ -15,8 +15,8 @@ import {
 import { fileURLToPath } from "node:url";
 import {
   EXTENSION_ID,
-  LEGACY_NATIVE_HOST_NAME,
   NATIVE_HOST_NAME,
+  OBSOLETE_NATIVE_HOST_NAMES,
   PRODUCT_NAME
 } from "./constants.mjs";
 
@@ -24,20 +24,19 @@ const rawArgs = process.argv.slice(2);
 const args = new Set(rawArgs);
 const dryRun = args.has("--dry-run");
 const uninstall = args.has("--uninstall");
-const installLegacyAlias = !args.has("--no-legacy-alias");
 const sourceDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(sourceDir, "../..");
 const extensionManifestPath = path.join(projectDir, "extension", "manifest.json");
 const storeItemPath = path.join(projectDir, "store", "item.json");
 const stateDir = path.resolve(
-  process.env.CHROMIUM_SIDECAR_STATE_DIR ||
+  process.env.CHROMIUM_BRIDGE_STATE_DIR ||
   process.env.ARC_CODEX_STATE_DIR ||
-  path.join(os.homedir(), ".chromium-sidecar")
+  path.join(os.homedir(), ".chromium-bridge")
 );
 const binDir = path.join(stateDir, "bin");
 const runtimeDir = path.join(stateDir, "runtime");
-const hostLauncherPath = path.join(binDir, "chromium-sidecar-host");
-const cliLauncherPath = path.join(binDir, "chromium-sidecar");
+const hostLauncherPath = path.join(binDir, "chromium-bridge-host");
+const cliLauncherPath = path.join(binDir, "chromium-bridge");
 const installedHostPath = path.join(runtimeDir, "host.mjs");
 const installedCliPath = path.join(runtimeDir, "cli.mjs");
 const runtimeFiles = [
@@ -51,16 +50,16 @@ const runtimeFiles = [
 const browserRegistrations = nativeMessagingDirectories().map(browser => ({
   ...browser,
   manifestPath: path.join(browser.directory, `${NATIVE_HOST_NAME}.json`),
-  legacyManifestPath: path.join(browser.directory, `${LEGACY_NATIVE_HOST_NAME}.json`)
+  obsoleteManifestPaths: OBSOLETE_NATIVE_HOST_NAMES.map(name => path.join(browser.directory, `${name}.json`))
 }));
 const hostManifestPaths = browserRegistrations.map(item => item.manifestPath);
-const legacyHostManifestPaths = browserRegistrations.map(item => item.legacyManifestPath);
+const obsoleteHostManifestPaths = browserRegistrations.flatMap(item => item.obsoleteManifestPaths);
 
 if (uninstall) {
   if (!dryRun) {
     await Promise.all([
       ...hostManifestPaths,
-      ...legacyHostManifestPaths
+      ...obsoleteHostManifestPaths
     ].map(filePath => unlink(filePath).catch(ignoreMissing)));
     await Promise.all([
       unlink(hostLauncherPath).catch(ignoreMissing),
@@ -73,7 +72,7 @@ if (uninstall) {
     dryRun,
     stateDir,
     hostManifestPaths,
-    legacyHostManifestPaths,
+    obsoleteHostManifestPaths,
     hostLauncherPath,
     cliLauncherPath,
     runtimeDir
@@ -90,7 +89,7 @@ const storeExtensionId = await readStoreExtensionId();
 const extensionIds = Array.from(new Set([
   extensionId,
   storeExtensionId,
-  ...String(process.env.CHROMIUM_SIDECAR_EXTENSION_IDS || "").split(","),
+  ...String(process.env.CHROMIUM_BRIDGE_EXTENSION_IDS || "").split(","),
   argumentValue("--extension-id") || ""
 ].map(value => String(value).trim()).filter(Boolean)));
 extensionIds.forEach(validateExtensionId);
@@ -99,16 +98,16 @@ const allowedOrigins = extensionIds.map(id => `chrome-extension://${id}/`);
 const nodePath = await findNode();
 const hostLauncher = [
   "#!/bin/sh",
-  `CHROMIUM_SIDECAR_ALLOWED_ORIGINS=${sh(allowedOrigins.join(","))}`,
-  "export CHROMIUM_SIDECAR_ALLOWED_ORIGINS",
+  `CHROMIUM_BRIDGE_ALLOWED_ORIGINS=${sh(allowedOrigins.join(","))}`,
+  "export CHROMIUM_BRIDGE_ALLOWED_ORIGINS",
   `exec ${sh(nodePath)} ${sh(installedHostPath)} "$@"`,
   ""
 ].join("\n");
 const cliLauncher = `#!/bin/sh\nexec ${sh(nodePath)} ${sh(installedCliPath)} "$@"\n`;
 const hostManifest = nativeHostManifest(NATIVE_HOST_NAME, hostLauncherPath, extensionIds);
-const legacyHostManifest = nativeHostManifest(LEGACY_NATIVE_HOST_NAME, hostLauncherPath, extensionIds);
 
 if (!dryRun) {
+  await Promise.all(obsoleteHostManifestPaths.map(filePath => unlink(filePath).catch(ignoreMissing)));
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   await chmod(stateDir, 0o700);
   await mkdir(binDir, { recursive: true, mode: 0o700 });
@@ -123,9 +122,6 @@ if (!dryRun) {
   for (const registration of browserRegistrations) {
     await mkdir(registration.directory, { recursive: true });
     await atomicWrite(registration.manifestPath, `${JSON.stringify(hostManifest, null, 2)}\n`, 0o644);
-    if (installLegacyAlias) {
-      await atomicWrite(registration.legacyManifestPath, `${JSON.stringify(legacyHostManifest, null, 2)}\n`, 0o644);
-    }
   }
 }
 
@@ -138,14 +134,13 @@ console.log(JSON.stringify({
   stateDir,
   browserRegistrations,
   hostManifestPaths,
-  legacyHostManifestPaths: installLegacyAlias ? legacyHostManifestPaths : [],
+  obsoleteHostManifestPaths,
   hostLauncherPath,
   cliLauncherPath,
   installedHostPath,
   installedCliPath,
   runtimeFiles,
-  hostManifest,
-  legacyHostManifest: installLegacyAlias ? legacyHostManifest : null
+  hostManifest
 }, null, 2));
 
 function nativeMessagingDirectories() {
@@ -175,7 +170,7 @@ function nativeHostManifest(name, launcherPath, extensionIds) {
 
 async function findNode() {
   const candidates = [
-    process.env.CHROMIUM_SIDECAR_NODE,
+    process.env.CHROMIUM_BRIDGE_NODE,
     process.env.ARC_CODEX_NODE,
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",

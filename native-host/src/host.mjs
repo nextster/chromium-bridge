@@ -22,34 +22,34 @@ process.umask(0o077);
 const startedAt = new Date().toISOString();
 const callerOrigin = process.argv[2] || "";
 const expectedOrigins = allowedOrigins(
-  process.env.CHROMIUM_SIDECAR_ALLOWED_ORIGINS ||
-  process.env.CHROMIUM_SIDECAR_ALLOWED_ORIGIN ||
+  process.env.CHROMIUM_BRIDGE_ALLOWED_ORIGINS ||
+  process.env.CHROMIUM_BRIDGE_ALLOWED_ORIGIN ||
   process.env.ARC_CODEX_ALLOWED_ORIGIN ||
   EXTENSION_ORIGIN
 );
-const configuredStateDir = process.env.CHROMIUM_SIDECAR_STATE_DIR || process.env.ARC_CODEX_STATE_DIR;
-const configuredSocketPath = process.env.CHROMIUM_SIDECAR_SOCKET || process.env.ARC_CODEX_SOCKET;
-const stateDir = path.resolve(configuredStateDir || path.join(os.homedir(), ".chromium-sidecar"));
+const configuredStateDir = process.env.CHROMIUM_BRIDGE_STATE_DIR || process.env.ARC_CODEX_STATE_DIR;
+const configuredSocketPath = process.env.CHROMIUM_BRIDGE_SOCKET || process.env.ARC_CODEX_SOCKET;
+const stateDir = path.resolve(configuredStateDir || path.join(os.homedir(), ".chromium-bridge"));
 const socketPath = path.resolve(configuredSocketPath || path.join(stateDir, "control.sock"));
 const compatibilitySocketPath = configuredStateDir || configuredSocketPath
   ? null
-  : path.resolve(process.env.CHROMIUM_SIDECAR_LEGACY_SOCKET || path.join(os.homedir(), ".arc-codex-bridge", "control.sock"));
+  : path.resolve(process.env.CHROMIUM_BRIDGE_LEGACY_SOCKET || path.join(os.homedir(), ".arc-codex-bridge", "control.sock"));
 const capturesRoot = path.resolve(
-  process.env.CHROMIUM_SIDECAR_CAPTURES_DIR || process.env.ARC_CODEX_CAPTURES_DIR || path.join(stateDir, "captures")
+  process.env.CHROMIUM_BRIDGE_CAPTURES_DIR || process.env.ARC_CODEX_CAPTURES_DIR || path.join(stateDir, "captures")
 );
 const maxEvents = positiveInteger(
-  process.env.CHROMIUM_SIDECAR_MAX_EVENTS || process.env.ARC_CODEX_MAX_EVENTS,
+  process.env.CHROMIUM_BRIDGE_MAX_EVENTS || process.env.ARC_CODEX_MAX_EVENTS,
   10000,
   100000
 );
-const maxEventBytes = positiveInteger(process.env.CHROMIUM_SIDECAR_MAX_EVENT_BYTES, 1024 * 1024, 8 * 1024 * 1024);
+const maxEventBytes = positiveInteger(process.env.CHROMIUM_BRIDGE_MAX_EVENT_BYTES, 1024 * 1024, 8 * 1024 * 1024);
 const maxEventMemoryBytes = positiveInteger(
-  process.env.CHROMIUM_SIDECAR_MAX_EVENT_MEMORY_BYTES,
+  process.env.CHROMIUM_BRIDGE_MAX_EVENT_MEMORY_BYTES,
   64 * 1024 * 1024,
   512 * 1024 * 1024
 );
 const maxCaptureBytes = positiveInteger(
-  process.env.CHROMIUM_SIDECAR_MAX_CAPTURE_BYTES,
+  process.env.CHROMIUM_BRIDGE_MAX_CAPTURE_BYTES,
   256 * 1024 * 1024,
   2 * 1024 * 1024 * 1024
 );
@@ -402,7 +402,7 @@ async function ensureSocketAvailable(filePath) {
   }
 
   if (await socketAcceptsConnections(filePath)) {
-    const error = new Error(`Another Chromium Sidecar native host is already listening on ${filePath}`);
+    const error = new Error(`Another Chromium Bridge native host is already listening on ${filePath}`);
     error.code = "EADDRINUSE";
     throw error;
   }
@@ -486,7 +486,7 @@ function requireBrowserConsent() {
     extensionInfo?.permissions?.siteAccess !== true ||
     extensionInfo?.permissions?.tabs !== true
   ) {
-    throw new Error("Browser access has not been approved in the Chromium Sidecar popup");
+    throw new Error("Browser access has not been approved in the Chromium Bridge popup");
   }
 }
 
@@ -517,7 +517,7 @@ function errorMessage(error) {
 }
 
 function logError(message) {
-  process.stderr.write(`[chromium-sidecar] ${message}\n`);
+  process.stderr.write(`[chromium-bridge] ${message}\n`);
 }
 
 function fatal(message) {

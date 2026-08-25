@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Chromium Sidecar",
-  "version": "0.5.0",
+  "name": "Chromium Bridge",
+  "version": "0.6.0",
   "minimum_chrome_version": "138",
   "description": "Connect user-authorized local tools to Chromium for transparent browser automation.",
-  "homepage_url": "https://github.com/nextster/chromium-sidecar",
+  "homepage_url": "https://github.com/nextster/chromium-bridge",
   "incognito": "not_allowed",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkFTDS/0b1L4kHHWCvYNOM0RBx4An1WhXLVPEEzI4dwW5qoO7Q/PJDBBOCFZwIfSv+82paQfkJ1efLp6YlvGJSn4DnfemnQevQx8FBANnMM0H4wld3WcNTH3CSgKFjq7xaMJv5vV/rnkcWOUXgd69BjGuCUKWlG2RgT1pA2X6G2anwSkzhLsH43OjPmLbY8HHtX1s4zvA+r7tibgYmf7GN1z4v085xHrMM9z1cFYAqm9F8PBiC8lZMEm2MHKwlqvKfKYCmvager845Q9uYV2+6qvkX6xWpkNabDKjfhW6fzJp4NWL+vvg4EaJTmhvkHqTKso91LzgoyPXdA95KT7AmQIDAQAB",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Chromium Sidecar",
+    "default_title": "Chromium Bridge",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"

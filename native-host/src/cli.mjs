@@ -5,9 +5,9 @@ import path from "node:path";
 import process from "node:process";
 
 const socketPath = path.resolve(
-  process.env.CHROMIUM_SIDECAR_SOCKET ||
+  process.env.CHROMIUM_BRIDGE_SOCKET ||
   process.env.ARC_CODEX_SOCKET ||
-  path.join(os.homedir(), ".chromium-sidecar", "control.sock")
+  path.join(os.homedir(), ".chromium-bridge", "control.sock")
 );
 const [command, ...args] = process.argv.slice(2);
 
@@ -166,35 +166,35 @@ function print(value) {
 
 function friendlyError(error) {
   if (["ENOENT", "ECONNREFUSED"].includes(error?.code)) {
-    return `Chromium Sidecar is unavailable at ${socketPath}. Start your browser and reload the Chromium Sidecar extension.`;
+    return `Chromium Bridge is unavailable at ${socketPath}. Start your browser and reload the Chromium Bridge extension.`;
   }
   return String(error?.message || error);
 }
 
 function usage() {
   console.log(`Usage:
-  chromium-sidecar status
-  chromium-sidecar host-info
-  chromium-sidecar extension-reload
-  chromium-sidecar providers
-  chromium-sidecar arc-spaces
-  chromium-sidecar arc-focus-space <space-id>
-  chromium-sidecar tabs
-  chromium-sidecar active
-  chromium-sidecar navigate <url> [tabId]
-  chromium-sidecar reload [tabId]
-  chromium-sidecar eval <tabId|active> <javascript>
-  chromium-sidecar eval-main <tabId|active> <javascript>
-  chromium-sidecar cookies [url] [domain] [--raw]
-  chromium-sidecar capture-start (--filter <substring> | --all-urls) [--body] [--raw]
-  chromium-sidecar capture-stop
-  chromium-sidecar capture-status
-  chromium-sidecar debug-attach [tabId|active]
-  chromium-sidecar debug-detach [tabId|active]
-  chromium-sidecar command <extension-command> [json-params]
-  chromium-sidecar events [limit]
-  chromium-sidecar clear
-  chromium-sidecar purge
-  chromium-sidecar curl
+  chromium-bridge status
+  chromium-bridge host-info
+  chromium-bridge extension-reload
+  chromium-bridge providers
+  chromium-bridge arc-spaces
+  chromium-bridge arc-focus-space <space-id>
+  chromium-bridge tabs
+  chromium-bridge active
+  chromium-bridge navigate <url> [tabId]
+  chromium-bridge reload [tabId]
+  chromium-bridge eval <tabId|active> <javascript>
+  chromium-bridge eval-main <tabId|active> <javascript>
+  chromium-bridge cookies [url] [domain] [--raw]
+  chromium-bridge capture-start (--filter <substring> | --all-urls) [--body] [--raw]
+  chromium-bridge capture-stop
+  chromium-bridge capture-status
+  chromium-bridge debug-attach [tabId|active]
+  chromium-bridge debug-detach [tabId|active]
+  chromium-bridge command <extension-command> [json-params]
+  chromium-bridge events [limit]
+  chromium-bridge clear
+  chromium-bridge purge
+  chromium-bridge curl
 `);
 }

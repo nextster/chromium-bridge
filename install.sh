@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
 
-repository="${CHROMIUM_SIDECAR_REPOSITORY:-nextster/chromium-sidecar}"
-ref="${CHROMIUM_SIDECAR_REF:-main}"
-source_dir="${CHROMIUM_SIDECAR_SOURCE_DIR:-}"
-state_dir="${CHROMIUM_SIDECAR_STATE_DIR:-$HOME/.chromium-sidecar}"
+repository="${CHROMIUM_BRIDGE_REPOSITORY:-nextster/chromium-bridge}"
+ref="${CHROMIUM_BRIDGE_REF:-main}"
+source_dir="${CHROMIUM_BRIDGE_SOURCE_DIR:-}"
+state_dir="${CHROMIUM_BRIDGE_STATE_DIR:-$HOME/.chromium-bridge}"
 node_version="24.19.0"
 temporary_dir=""
 command_name="install"
+migration_source=""
 
 main() {
 case "${1:-}" in
@@ -25,8 +26,12 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 if [ "$(uname -s)" != "Darwin" ] && ! has_argument "--dry-run" "$@"; then
-  echo "Chromium Sidecar installation currently supports macOS only." >&2
+  echo "Chromium Bridge installation currently supports macOS only." >&2
   exit 1
+fi
+
+if [ "$command_name" != "uninstall" ] && ! has_argument "--dry-run" "$@"; then
+  migrate_legacy_state
 fi
 
 require_command curl
@@ -39,7 +44,7 @@ fi
 if [ -z "$source_dir" ]; then
   validate_source_part "$repository" "repository"
   validate_source_part "$ref" "ref"
-  temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/chromium-sidecar.XXXXXX")"
+  temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/chromium-bridge.XXXXXX")"
   archive="$temporary_dir/source.tar.gz"
   source_dir="$temporary_dir/source"
   curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
@@ -67,12 +72,37 @@ if [ ! -f "$script" ]; then
   exit 1
 fi
 
-CHROMIUM_SIDECAR_NODE="$node_command" "$node_command" "$script" "$@"
+CHROMIUM_BRIDGE_MIGRATION_SOURCE="$migration_source" \
+CHROMIUM_BRIDGE_NODE="$node_command" "$node_command" "$script" "$@"
+}
+
+migrate_legacy_state() {
+  [ -z "${CHROMIUM_BRIDGE_STATE_DIR:-}" ] || return 0
+  legacy_state_dir="$HOME/.chromium-sidecar"
+  [ -d "$legacy_state_dir" ] || return 0
+
+  if [ ! -e "$state_dir" ]; then
+    mv "$legacy_state_dir" "$state_dir"
+    migration_source="$legacy_state_dir"
+    return 0
+  fi
+
+  if [ -d "$legacy_state_dir/captures" ]; then
+    imported_captures="$state_dir/captures/imported-before-rename-$(date +%s)"
+    mkdir -p "$imported_captures"
+    chmod 700 "$state_dir/captures" "$imported_captures"
+    cp -Rp "$legacy_state_dir/captures/." "$imported_captures/"
+  fi
+  if [ ! -e "$state_dir/node" ] && [ -d "$legacy_state_dir/node" ]; then
+    mv "$legacy_state_dir/node" "$state_dir/node"
+  fi
+  rm -rf "$legacy_state_dir"
+  migration_source="$legacy_state_dir"
 }
 
 find_node() {
-  if [ "${CHROMIUM_SIDECAR_FORCE_PORTABLE_NODE:-0}" != "1" ]; then
-    for candidate in "${CHROMIUM_SIDECAR_NODE:-}" "$state_dir/node/bin/node" "$(command -v node 2>/dev/null || true)"; do
+  if [ "${CHROMIUM_BRIDGE_FORCE_PORTABLE_NODE:-0}" != "1" ]; then
+    for candidate in "${CHROMIUM_BRIDGE_NODE:-}" "$state_dir/node/bin/node" "$(command -v node 2>/dev/null || true)"; do
       if [ -n "$candidate" ] && [ -x "$candidate" ] && node_is_compatible "$candidate"; then
         printf '%s\n' "$candidate"
         return
@@ -111,9 +141,9 @@ install_portable_node() {
   node_stage="$(mktemp -d "$state_dir/.node-install.XXXXXX")"
   node_archive="$node_stage/node.tar.gz"
   archive_name="node-v$node_version-darwin-$node_arch.tar.gz"
-  if [ -n "${CHROMIUM_SIDECAR_TEST_NODE_ARCHIVE:-}" ]; then
-    cp "$CHROMIUM_SIDECAR_TEST_NODE_ARCHIVE" "$node_archive"
-    expected_sha256="${CHROMIUM_SIDECAR_TEST_NODE_SHA256:?Missing test Node SHA-256}"
+  if [ -n "${CHROMIUM_BRIDGE_TEST_NODE_ARCHIVE:-}" ]; then
+    cp "$CHROMIUM_BRIDGE_TEST_NODE_ARCHIVE" "$node_archive"
+    expected_sha256="${CHROMIUM_BRIDGE_TEST_NODE_SHA256:?Missing test Node SHA-256}"
   else
     echo "Installing verified Node.js v$node_version runtime..." >&2
     curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
@@ -164,7 +194,7 @@ file_sha256() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "Chromium Sidecar installer requires $1." >&2
+    echo "Chromium Bridge installer requires $1." >&2
     exit 1
   }
 }

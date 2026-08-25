@@ -12,7 +12,7 @@ const pluginDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const serverPath = path.join(pluginDir, "mcp", "server.mjs");
 
 test("MCP server exposes Chromium and provider tools over the control socket", async t => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "chromium-sidecar-mcp-"));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-mcp-"));
   const socketPath = path.join(tempDir, "control.sock");
   let connections = 0;
   let nextTabId = 90;
@@ -96,7 +96,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   });
 
   const child = spawn(process.execPath, [serverPath], {
-    env: { ...process.env, CHROMIUM_SIDECAR_SOCKET: socketPath },
+    env: { ...process.env, CHROMIUM_BRIDGE_SOCKET: socketPath },
     stdio: ["pipe", "pipe", "pipe"]
   });
   t.after(async () => {
@@ -146,7 +146,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
 
   await waitUntil(() => responses.length === 5);
   const response = id => responses.find(item => item.id === id);
-  assert.equal(response(1).result.serverInfo.name, "chromium-sidecar");
+  assert.equal(response(1).result.serverInfo.name, "chromium-bridge");
   assert.ok(response(2).result.tools.some(tool => tool.name === "snapshot"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "screenshot"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "close_agent_tabs"));

@@ -22,10 +22,10 @@ test("curl replay uses environment variables for redacted values", () => {
     body: { kind: "formData", data: { token: ["<redacted:12>"] } }
   }));
 
-  assert.match(script, /: "\$\{SIDECAR_COOKIE:=\}"/);
-  assert.match(script, /Cookie: '"\$\{SIDECAR_COOKIE\}"/);
-  assert.match(script, /: "\$\{SIDECAR_FORM_1_TOKEN_1:=\}"/);
-  assert.match(script, /'token='"\$\{SIDECAR_FORM_1_TOKEN_1\}"/);
+  assert.match(script, /: "\$\{BRIDGE_COOKIE:=\}"/);
+  assert.match(script, /Cookie: '"\$\{BRIDGE_COOKIE\}"/);
+  assert.match(script, /: "\$\{BRIDGE_FORM_1_TOKEN_1:=\}"/);
+  assert.match(script, /'token='"\$\{BRIDGE_FORM_1_TOKEN_1\}"/);
 });
 
 test("curl replay lets curl generate multipart boundaries", () => {
@@ -51,10 +51,10 @@ test("curl replay preserves raw text bodies", () => {
 test("curl replay shell-quotes form names around environment expansion", () => {
   const script = renderCurl(requestEvents({
     contentType: "application/x-www-form-urlencoded",
-    body: { kind: "formData", data: { "$(touch /tmp/sidecar-pwned)": ["<redacted:6>"] } }
+    body: { kind: "formData", data: { "$(touch /tmp/bridge-pwned)": ["<redacted:6>"] } }
   }));
 
-  assert.match(script, /'\$\(touch \/tmp\/sidecar-pwned\)='"\$\{SIDECAR_FORM_1_/);
+  assert.match(script, /'\$\(touch \/tmp\/bridge-pwned\)='"\$\{BRIDGE_FORM_1_/);
   assert.doesNotMatch(script, /--data-urlencode "\$\(touch/);
   const syntax = spawnSync("/bin/bash", ["-n"], { input: script, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
