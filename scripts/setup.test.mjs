@@ -31,6 +31,7 @@ else console.log(JSON.stringify({ ok: true }));
 
   try {
     const legacyCapture = path.join(home, ".chromium-sidecar", "captures", "kept.txt");
+    const legacyCli = path.join(home, ".chromium-sidecar", "bin", "chromium-sidecar");
     const legacyManifest = path.join(
       home,
       "Library",
@@ -41,8 +42,10 @@ else console.log(JSON.stringify({ ok: true }));
       "com.chromium_sidecar.bridge.json"
     );
     await mkdir(path.dirname(legacyCapture), { recursive: true });
+    await mkdir(path.dirname(legacyCli), { recursive: true });
     await mkdir(path.dirname(legacyManifest), { recursive: true });
     await writeFile(legacyCapture, "keep");
+    await writeFile(legacyCli, "old");
     await writeFile(legacyManifest, "{}");
     const { stdout } = await execFileAsync(process.execPath, [
       path.join(projectDir, "scripts", "setup.mjs"),
@@ -62,6 +65,7 @@ else console.log(JSON.stringify({ ok: true }));
     assert.equal(result.migration.moved, true);
     await assert.rejects(access(path.join(home, ".chromium-sidecar")));
     await assert.rejects(access(legacyManifest));
+    await assert.rejects(access(path.join(home, ".chromium-bridge", "bin", "chromium-sidecar")));
     assert.equal(result.codex.marketplaceRoot, marketplaceRoot);
     const marketplace = JSON.parse(
       await readFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), "utf8")

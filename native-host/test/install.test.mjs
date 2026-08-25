@@ -44,6 +44,10 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
     "host.mjs"
   ]);
   assert.equal(result.hostManifest.path, result.hostLauncherPath);
+  assert.deepEqual(result.obsoleteLauncherPaths.map(filePath => path.basename(filePath)), [
+    "chromium-sidecar-host",
+    "chromium-sidecar"
+  ]);
 });
 
 test("installer can authorize a store extension id alongside the development id", async () => {

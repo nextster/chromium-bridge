@@ -37,6 +37,10 @@ const binDir = path.join(stateDir, "bin");
 const runtimeDir = path.join(stateDir, "runtime");
 const hostLauncherPath = path.join(binDir, "chromium-bridge-host");
 const cliLauncherPath = path.join(binDir, "chromium-bridge");
+const obsoleteLauncherPaths = [
+  path.join(binDir, "chromium-sidecar-host"),
+  path.join(binDir, "chromium-sidecar")
+];
 const installedHostPath = path.join(runtimeDir, "host.mjs");
 const installedCliPath = path.join(runtimeDir, "cli.mjs");
 const runtimeFiles = [
@@ -64,6 +68,7 @@ if (uninstall) {
     await Promise.all([
       unlink(hostLauncherPath).catch(ignoreMissing),
       unlink(cliLauncherPath).catch(ignoreMissing),
+      ...obsoleteLauncherPaths.map(filePath => unlink(filePath).catch(ignoreMissing)),
       ...runtimeFiles.map(fileName => unlink(path.join(runtimeDir, fileName)).catch(ignoreMissing))
     ]);
   }
@@ -75,6 +80,7 @@ if (uninstall) {
     obsoleteHostManifestPaths,
     hostLauncherPath,
     cliLauncherPath,
+    obsoleteLauncherPaths,
     runtimeDir
   }, null, 2));
   process.exit(0);
@@ -107,7 +113,10 @@ const cliLauncher = `#!/bin/sh\nexec ${sh(nodePath)} ${sh(installedCliPath)} "$@
 const hostManifest = nativeHostManifest(NATIVE_HOST_NAME, hostLauncherPath, extensionIds);
 
 if (!dryRun) {
-  await Promise.all(obsoleteHostManifestPaths.map(filePath => unlink(filePath).catch(ignoreMissing)));
+  await Promise.all([
+    ...obsoleteHostManifestPaths,
+    ...obsoleteLauncherPaths
+  ].map(filePath => unlink(filePath).catch(ignoreMissing)));
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   await chmod(stateDir, 0o700);
   await mkdir(binDir, { recursive: true, mode: 0o700 });
@@ -137,6 +146,7 @@ console.log(JSON.stringify({
   obsoleteHostManifestPaths,
   hostLauncherPath,
   cliLauncherPath,
+  obsoleteLauncherPaths,
   installedHostPath,
   installedCliPath,
   runtimeFiles,
