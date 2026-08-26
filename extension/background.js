@@ -9,7 +9,7 @@ import {
 } from "./capture-safety.js";
 
 const NATIVE_HOST_NAME = "com.chromium_bridge.bridge";
-const EXTENSION_VERSION = "0.5.0";
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const PRIVACY_CONSENT_VERSION = 1;
 const MAX_SCRIPT_CHARS = 512 * 1024;
 const MAX_RESPONSE_BODY_CHARS = 1024 * 1024;
