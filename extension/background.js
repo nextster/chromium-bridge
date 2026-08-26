@@ -455,7 +455,6 @@ async function downscaleScreenshot(dataUrl, format, quality, maxWidth) {
 }
 
 async function attachDebugger(tabId) {
-  await requireOptionalPermission("debugger");
   ensureDebuggerListeners();
   if (debuggerTabs.has(tabId)) return { tabId, attached: true };
   await chrome.debugger.attach({ tabId }, "1.3");

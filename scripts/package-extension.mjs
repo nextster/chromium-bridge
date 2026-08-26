@@ -61,8 +61,14 @@ function validateManifest(value) {
   if (Number(value.minimum_chrome_version) < 138) throw new Error("minimum_chrome_version must be at least 138");
   if (!value.description || value.description.length > 132) throw new Error("Manifest description must be 1-132 characters");
   if (value.permissions?.includes("activeTab")) throw new Error("activeTab is redundant with Bridge website access");
-  for (const permission of ["tabs", "cookies", "debugger"]) {
+  for (const permission of ["tabs", "cookies"]) {
     if (value.permissions?.includes(permission)) throw new Error(`${permission} must remain optional`);
+  }
+  if (!value.permissions?.includes("debugger")) {
+    throw new Error("debugger must be required because Chromium does not allow it in optional_permissions");
+  }
+  if (value.optional_permissions?.includes("debugger")) {
+    throw new Error("Chromium omits debugger when it is listed as optional");
   }
   if (!value.optional_host_permissions?.includes("<all_urls>")) {
     throw new Error("Website access must remain an explicit optional permission");

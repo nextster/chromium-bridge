@@ -7,7 +7,7 @@ The portable extension core handles tabs, compact page snapshots, interactions, 
 ## Security model
 
 - Browser data is unavailable until the user approves website access in the extension popup.
-- Website access is an optional host permission. Cookie and DevTools access are separate optional permissions.
+- Website, tab, and cookie access remain unavailable until the user grants the optional permissions. Chromium requires the DevTools `debugger` permission at install time, but the extension's consent gate still blocks its use until local browser access is approved.
 - Network capture requires a URL substring or an explicit all-URLs opt-in. Secret fields are redacted by default, and capture events and files are size-limited.
 - The extension makes no requests to a developer-operated server. It sends requested data to the user-installed local host through Chromium Native Messaging.
 - Local clients, including AI tools, decide how tool output is processed and may use third-party services. Review their privacy settings before exposing sensitive pages.

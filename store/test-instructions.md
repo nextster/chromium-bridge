@@ -12,4 +12,4 @@ Chromium Bridge requires its open-source macOS Native Messaging companion. No ac
 9. Run `~/.chromium-bridge/bin/chromium-bridge eval active 'document.title'` and confirm the page title is returned.
 10. In the popup, enter `example.com` as the capture filter, start capture, reload the example page, and stop capture. Raw secrets and request bodies can remain disabled.
 
-Optional cookie and DevTools permissions are not required for the basic review flow.
+Optional cookie access is not required for the basic review flow. DevTools access is declared at install time because Chromium does not permit it as an optional permission, and it remains unused unless the reviewer explicitly attaches it.

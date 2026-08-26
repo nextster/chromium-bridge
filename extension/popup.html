@@ -19,7 +19,7 @@
       <p>Chromium Bridge lets local tools you install read and control websites in this browser profile.</p>
       <ul>
         <li>Page content, URLs, and browser interactions may be sent to the local Native Messaging host.</li>
-        <li>Cookies and DevTools access are separate optional permissions.</li>
+        <li>Cookie access is optional. DevTools operations remain blocked until you approve local access.</li>
         <li>The extension has no developer-operated server. Your local tools decide where their outputs are processed.</li>
       </ul>
       <p><a href="https://github.com/nextster/chromium-bridge/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy policy</a></p>
@@ -41,10 +41,9 @@
       </section>
 
       <section>
-        <h2>Optional access</h2>
+        <h2>Optional cookie access</h2>
         <div class="buttons">
           <button id="grantCookies" class="secondary">Enable cookies</button>
-          <button id="grantDebugger" class="secondary">Enable DevTools</button>
         </div>
       </section>
 

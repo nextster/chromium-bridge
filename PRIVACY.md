@@ -19,7 +19,7 @@ Depending on the command the user runs, Chromium Bridge may handle:
 - Browser interaction data needed to click, fill, select, wait, navigate, or close a tab
 - Basic extension and host diagnostics, including versions, process identifiers, and connection errors
 
-The extension requires an explicit approval in its popup before browser data is available. Cookie and DevTools access are separate optional permissions. Raw secrets are excluded from normal cookie output and capture unless the user explicitly enables a raw mode.
+The extension requires an explicit approval in its popup before browser data is available. Cookie access is optional. Chromium requires the DevTools `debugger` permission at install time, but Chromium Bridge does not use it until popup approval and an explicit local debugging command. Raw secrets are excluded from normal cookie output and capture unless the user explicitly enables a raw mode.
 
 Chromium Bridge does not request access to incognito browsing.
 
@@ -63,7 +63,7 @@ Users can:
 
 - Decline initial website access
 - Revoke browser access from the extension popup
-- Grant or remove optional cookie and DevTools permissions
+- Grant or remove optional cookie access
 - Require a narrow URL filter for capture or explicitly opt into all-URL capture
 - Stop capture at any time
 - Purge locally stored captures

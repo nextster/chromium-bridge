@@ -21,7 +21,7 @@ $("revokeAccess").addEventListener("click", () => run(async () => {
   } finally {
     await chrome.permissions.remove({
       origins: ["<all_urls>"],
-      permissions: ["tabs", "cookies", "debugger"]
+      permissions: ["tabs", "cookies"]
     });
   }
   await refresh();
@@ -29,7 +29,6 @@ $("revokeAccess").addEventListener("click", () => run(async () => {
 }));
 
 $("grantCookies").addEventListener("click", () => grantPermission("cookies"));
-$("grantDebugger").addEventListener("click", () => grantPermission("debugger"));
 $("openScriptSettings").addEventListener("click", () => run(async () => {
   await chrome.tabs.create({
     url: `chrome://extensions/?id=${chrome.runtime.id}`,
@@ -114,7 +113,6 @@ async function refresh() {
     $("includeSecrets").checked = Boolean(result.capture.includeSecrets);
     $("captureBody").checked = Boolean(result.capture.captureRequestBody);
     updatePermissionButton("grantCookies", "cookies", result.permissions.cookies);
-    updatePermissionButton("grantDebugger", "DevTools", result.permissions.debugger);
   } catch (error) {
     $("status").textContent = "error";
     setOutput(errorMessage(error));

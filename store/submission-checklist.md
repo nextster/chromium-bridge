@@ -6,7 +6,7 @@
 - [x] Chrome 138 minimum for the per-extension Allow User Scripts toggle
 - [x] Narrow single-purpose description
 - [x] Explicit consent before browser-data access
-- [x] Website, cookie, and debugger access made optional where possible
+- [x] Website, tab, and cookie access made optional; required debugger access remains consent-gated
 - [x] Redaction, capture limits, origin validation, and owner-only local storage
 - [x] Privacy policy, Limited Use statement, permission justifications, and reviewer instructions
 - [x] Reproducible 128x128 icon and 440x280 small promotional image

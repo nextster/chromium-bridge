@@ -30,9 +30,9 @@ Allows the user-authorized local tool to work on websites the user chooses. Acce
 
 Reads cookies only when the user separately grants cookie access and requests the cookie tool. Values are redacted unless raw output is explicitly requested.
 
-## Optional `debugger`
+## `debugger`
 
-Supports an advanced, explicitly enabled network-debugging mode for response capture through the Chrome DevTools Protocol. The bridge exposes only attach, detach, and its fixed Network-domain operations; it does not expose arbitrary DevTools commands.
+Chromium does not permit `debugger` in `optional_permissions`, so it must be declared at install time. Chromium Bridge still blocks its use behind popup consent and an explicit local debugging command. It supports response capture through the Chrome DevTools Protocol and exposes only attach, detach, and fixed Network-domain operations, not arbitrary DevTools commands.
 
 ## Remote code declaration
 
