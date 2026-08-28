@@ -21,7 +21,7 @@ Requirements:
 
 - macOS
 - Arc, Chrome, Chromium, Brave, Edge, or Vivaldi based on Chrome 138 or newer
-- Codex CLI available as `codex`
+- Codex desktop app or CLI. The installer detects `codex` in `PATH` and the CLI bundled inside `ChatGPT.app` or `Codex.app`.
 
 Run:
 

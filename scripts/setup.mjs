@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { findCodexCli } from "./codex-cli.mjs";
 
 const execFileAsync = promisify(execFile);
 const rawArgs = process.argv.slice(2);
@@ -67,11 +68,11 @@ if (!dryRun && !hostOnly) {
   extensionReload = await reloadRunningExtension(hostResult.cliLauncherPath);
 }
 let codexResult = { skipped: true, reason: skipCodex ? "disabled by --no-codex" : "Codex CLI not found" };
-const codexAvailable = await commandExists("codex");
-if (!skipCodex && codexAvailable) {
-  codexResult = dryRun ? { skipped: true, reason: "dry run" } : await installCodexPlugin(hostResult.nodePath);
-} else if (!skipCodex && !dryRun) {
-  throw new Error("Codex CLI was not found. Install Codex first or rerun with --no-codex.");
+const codexPath = skipCodex ? null : await findCodexCli();
+if (codexPath) {
+  codexResult = dryRun
+    ? { skipped: true, reason: "dry run", command: codexPath }
+    : await installCodexPlugin(hostResult.nodePath, codexPath);
 }
 
 const browser = detectBrowser();
@@ -112,6 +113,9 @@ const next = readiness?.ready
       `Choose Load unpacked and select ${installedExtensionDir}`,
       ...(!skipCodex && !codexResult.skipped ? ["Reload Codex after the plugin is installed"] : [])
     ];
+if (!skipCodex && codexResult.reason === "Codex CLI not found") {
+  next.push("Install the Codex desktop app or CLI, then rerun this installer to register the plugin");
+}
 
 console.log(JSON.stringify({
   installed: !dryRun,
@@ -134,31 +138,31 @@ console.log(JSON.stringify({
 }, null, 2));
 if (readiness && !readiness.ready) process.exitCode = 2;
 
-async function installCodexPlugin(nodePath) {
+async function installCodexPlugin(nodePath, codexPath) {
   const removedObsolete = [];
   for (const command of [
     ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
     ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]
   ]) {
-    removedObsolete.push(await runOptional("codex", command));
+    removedObsolete.push(await runOptional(codexPath, command));
   }
   await installCodexMarketplace(nodePath);
-  const marketplaces = await runJson("codex", ["plugin", "marketplace", "list", "--json"]);
+  const marketplaces = await runJson(codexPath, ["plugin", "marketplace", "list", "--json"]);
   const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "chromium-bridge");
   if (existingMarketplace && path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    await execFileAsync("codex", ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]);
+    await execFileAsync(codexPath, ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]);
   }
   if (!existingMarketplace || path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    await execFileAsync("codex", ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
+    await execFileAsync(codexPath, ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
   }
 
-  const plugins = await runJson("codex", ["plugin", "list", "--json"]);
+  const plugins = await runJson(codexPath, ["plugin", "list", "--json"]);
   const pluginId = "chromium-bridge@chromium-bridge";
   if (plugins.installed?.some(item => item.pluginId === pluginId)) {
-    await execFileAsync("codex", ["plugin", "remove", pluginId, "--json"]);
+    await execFileAsync(codexPath, ["plugin", "remove", pluginId, "--json"]);
   }
-  const installed = await runJson("codex", ["plugin", "add", pluginId, "--json"]);
-  return { skipped: false, pluginId, marketplaceRoot: installedMarketplaceDir, removedObsolete, installed };
+  const installed = await runJson(codexPath, ["plugin", "add", pluginId, "--json"]);
+  return { skipped: false, command: codexPath, pluginId, marketplaceRoot: installedMarketplaceDir, removedObsolete, installed };
 }
 
 async function migrateLegacyState() {
@@ -292,15 +296,6 @@ function detectBrowser() {
     { application: "Chromium", extensionsUrl: "chrome://extensions", path: "/Applications/Chromium.app" }
   ];
   return candidates.find(candidate => existsSync(candidate.path));
-}
-
-async function commandExists(command) {
-  try {
-    await execFileAsync("/usr/bin/env", ["which", command]);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function runJson(command, commandArgs, timeout) {

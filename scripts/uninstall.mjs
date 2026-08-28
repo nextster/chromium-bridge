@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { findCodexCli } from "./codex-cli.mjs";
 
 const execFileAsync = promisify(execFile);
 const args = new Set(process.argv.slice(2));
@@ -29,7 +30,8 @@ if (process.platform !== "darwin" && !dryRun) {
   throw new Error("Chromium Bridge uninstallation currently supports macOS only.");
 }
 
-if (!skipCodex && await commandExists("codex")) {
+const codexPath = skipCodex ? null : await findCodexCli();
+if (codexPath) {
   for (const command of [
     ["plugin", "remove", "chromium-bridge@chromium-bridge", "--json"],
     ["plugin", "marketplace", "remove", "chromium-bridge", "--json"],
@@ -39,7 +41,7 @@ if (!skipCodex && await commandExists("codex")) {
     if (dryRun) {
       removedCodex.push({ command, dryRun: true });
     } else {
-      removedCodex.push(await runOptional("codex", command));
+      removedCodex.push(await runOptional(codexPath, command));
     }
   }
 }
@@ -100,15 +102,6 @@ console.log(JSON.stringify({
     ...retainedCaptureDirs.map(directory => `Captures remain under ${directory}`)
   ]
 }, null, 2));
-
-async function commandExists(command) {
-  try {
-    await execFileAsync("/usr/bin/env", ["which", command]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function runOptional(command, commandArgs) {
   try {
