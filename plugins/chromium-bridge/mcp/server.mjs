@@ -72,23 +72,23 @@ const tools = [
     maxTextChars: integerProperty("Maximum visible-text characters to return.", 0, 20000),
     includeRects: booleanProperty("Include element coordinates. Defaults to false to keep responses small.")
   }, readOnly),
-  tool("click", "Click an element ref from the latest snapshot. A click can submit forms or trigger external actions.", {
+  tool("click", "Click an element ref from the latest snapshot. Inspect the target before clicks that can submit or trigger an external action.", {
     ref: stringProperty("Element ref from snapshot, for example e3."),
     tabId: tabProperty(),
     ...postActionProperties()
-  }, consequential, ["ref"]),
+  }, browserMutation, ["ref"]),
   tool("fill", "Set an input, textarea, select, or contenteditable value and dispatch input/change events.", {
     ref: stringProperty("Element ref from snapshot."),
     value: stringProperty("Value to enter."),
     tabId: tabProperty(),
     ...postActionProperties()
-  }, consequential, ["ref", "value"]),
+  }, browserMutation, ["ref", "value"]),
   tool("select", "Select an option by value in a select element.", {
     ref: stringProperty("Element ref from snapshot."),
     value: stringProperty("Option value."),
     tabId: tabProperty(),
     ...postActionProperties()
-  }, consequential, ["ref", "value"]),
+  }, browserMutation, ["ref", "value"]),
   tool("evaluate", "Execute user-supplied JavaScript in the page. This is powerful and may mutate the page or trigger network actions.", {
     code: stringProperty("JavaScript expression or program."),
     tabId: tabProperty(),

@@ -28,6 +28,17 @@ Use the `chromium-bridge` MCP server for all webpage and browser interaction.
 
 Prefer the fewest semantically complete tool calls. Independent read-only operations on different tabs may run in parallel; actions on one tab remain ordered.
 
+## Latency Discipline
+
+- Browser bridge calls are normally sub-second. Begin with the required tool call instead of spending time describing the intended interaction.
+- Give at most one concise progress update before a routine browser sequence. Do not narrate each click, field, product, or loading state.
+- After the user supplies requested information or confirmation, resume the pending browser action immediately. Do not restate the plan.
+- Budget one snapshot per stable page state. Do not call `status`, `active_tab`, `list_tabs`, or `screenshot` as reassurance when the current `tabId` and refs remain valid.
+- On large result pages, prefer one read-only `evaluate` that returns a small structured candidate list over repeated snapshots, scrolling, or one-tool-per-item inspection.
+- When several already-authorized DOM operations are deterministic and require no intermediate judgment, perform them in one `evaluate` call. Keep purchase, payment, message-send, publish, and other externally consequential actions separate for confirmation.
+- Use `snapshotAfter` or `wait_for(snapshotAfter: true)` to combine action, settling, and inspection. Avoid fixed sleeps; give `wait_for` the shortest realistic timeout.
+- Treat a stale ref or actual navigation as the reason for a fresh snapshot. Do not preemptively refresh state.
+
 ## Tab Lifecycle
 
 - Work in the user's current tab only when the request clearly refers to that page.
@@ -46,7 +57,8 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 
 ## Safety
 
-- Treat `click`, `fill`, `select`, `evaluate`, navigation, tab closing, raw capture, and provider focus changes as potentially consequential.
+- Ordinary navigation, field entry, option selection, and non-submitting UI clicks can proceed directly when they are within the user's request.
+- Judge consequences by the target action, not merely by the tool name. `evaluate` may combine routine actions, but must not bypass confirmation for an external side effect.
 - Do not submit forms, publish content, send messages, change account settings, make purchases, make payments, or file government forms without the confirmation required by the active Codex policy.
 - Keep `includeSecrets` false by default for cookies and capture.
 - Set `includeSecrets` true only when the user explicitly requests raw credentials or an exact authenticated replay and understands that secrets will enter local Codex tool output or capture files.
