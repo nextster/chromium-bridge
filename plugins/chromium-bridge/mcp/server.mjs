@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.5.0";
+const SERVER_VERSION = "0.6.3";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_BRIDGE_SOCKET ||
@@ -113,6 +113,16 @@ const tools = [
     maxElements: integerProperty("Maximum elements in the returned snapshot.", 1, 500),
     maxTextChars: integerProperty("Maximum text characters in the returned snapshot.", 0, 20000)
   }, readOnly),
+  tool("browser_flow", "Run an ordered sequence of routine page actions in one MCP call, avoiding a model round-trip between every fill, click, wait, navigation, and snapshot. Use only when intermediate steps require no new judgment or confirmation.", {
+    tabId: tabProperty(),
+    actions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      description: "Ordered routine actions. Refs come from the latest snapshot for this tab.",
+      items: flowActionSchema()
+    }
+  }, browserMutation, ["actions"]),
   tool("screenshot", "Capture the currently visible viewport of the active browser tab.", {
     tabId: tabProperty(),
     format: {
@@ -296,6 +306,8 @@ async function callTool(name, args) {
         ? snapshotResult(result.snapshot, { wait: result.wait })
         : textResult(result.wait);
     }
+    case "browser_flow":
+      return textResult(await runBrowserFlow(args));
     case "screenshot":
       return screenshotResult(await extension("tab.screenshot", {
         tabId: await resolveTabId(args.tabId),
@@ -487,6 +499,64 @@ async function finishInteraction(tabId, action, args) {
       maxTextChars: args.maxTextChars
     })
   };
+}
+
+async function runBrowserFlow(args) {
+  const actions = Array.isArray(args.actions) ? args.actions : [];
+  if (!actions.length || actions.length > 20) {
+    throw new Error("browser_flow requires between 1 and 20 actions");
+  }
+  const tabId = await resolveTabId(args.tabId);
+  const steps = [];
+  for (let index = 0; index < actions.length; index += 1) {
+    const step = actions[index] || {};
+    const action = requiredString(step.action, `actions[${index}].action`);
+    try {
+      let result;
+      switch (action) {
+        case "snapshot":
+          result = await pageSnapshot({ ...step, tabId });
+          break;
+        case "click":
+          result = await clickElement({ ...step, tabId });
+          break;
+        case "fill":
+          result = await fillElement({ ...step, tabId });
+          break;
+        case "select":
+          result = await selectElement({ ...step, tabId });
+          break;
+        case "wait_for":
+          result = await waitFor({ ...step, tabId });
+          break;
+        case "navigate":
+          refMaps.delete(tabId);
+          result = tabSummary(await extension("tab.navigate", {
+            tabId,
+            url: requiredString(step.url, `actions[${index}].url`)
+          }));
+          break;
+        case "back":
+        case "forward":
+        case "reload":
+          refMaps.delete(tabId);
+          result = await extension(`tab.${action}`, { tabId });
+          break;
+        default:
+          throw new Error(`Unsupported browser_flow action: ${action}`);
+      }
+      steps.push({ index, action, result });
+    } catch (error) {
+      return {
+        tabId,
+        completed: false,
+        failedAt: index,
+        error: friendlyError(error),
+        steps
+      };
+    }
+  }
+  return { tabId, completed: true, steps };
 }
 
 async function pageSnapshotWithRetry(args, timeoutMs = 2000) {
@@ -938,6 +1008,35 @@ function postActionProperties() {
     settleMs: integerProperty("Delay before the optional snapshot. Defaults to 150 ms.", 0, 5000),
     maxElements: integerProperty("Maximum elements in the optional snapshot.", 1, 500),
     maxTextChars: integerProperty("Maximum text characters in the optional snapshot.", 0, 20000)
+  };
+}
+
+function flowActionSchema() {
+  return {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["snapshot", "click", "fill", "select", "wait_for", "navigate", "back", "forward", "reload"]
+      },
+      ref: stringProperty("Element ref from the latest snapshot."),
+      value: stringProperty("Value for fill or select."),
+      url: stringProperty("Destination URL for navigate."),
+      text: stringProperty("Visible text for wait_for."),
+      selector: stringProperty("CSS selector for wait_for."),
+      state: {
+        type: "string",
+        enum: ["visible", "hidden"]
+      },
+      timeoutMs: integerProperty("Timeout for wait_for.", 100, 30000),
+      snapshotAfter: booleanProperty("Include a snapshot after this action."),
+      settleMs: integerProperty("Delay before an optional post-action snapshot.", 0, 5000),
+      maxElements: integerProperty("Maximum elements in a snapshot.", 1, 500),
+      maxTextChars: integerProperty("Maximum text characters in a snapshot.", 0, 20000),
+      includeRects: booleanProperty("Include element coordinates in a snapshot.")
+    },
+    required: ["action"],
+    additionalProperties: false
   };
 }
 

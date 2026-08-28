@@ -1,6 +1,6 @@
 {
   "name": "chromium-bridge",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Local agent bridge for authenticated Chromium browsers, with a Codex plugin and optional Arc Spaces support.",
   "type": "module",
   "license": "MIT",

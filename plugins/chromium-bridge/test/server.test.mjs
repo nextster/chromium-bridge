@@ -147,13 +147,15 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   await waitUntil(() => responses.length === 5);
   const response = id => responses.find(item => item.id === id);
   assert.equal(response(1).result.serverInfo.name, "chromium-bridge");
+  assert.equal(response(1).result.serverInfo.version, "0.6.3");
   assert.ok(response(2).result.tools.some(tool => tool.name === "snapshot"));
+  assert.ok(response(2).result.tools.some(tool => tool.name === "browser_flow"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "screenshot"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "close_agent_tabs"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "reload_extension"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "arc_list_spaces"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "purge_captures"));
-  for (const name of ["click", "fill", "select"]) {
+  for (const name of ["click", "fill", "select", "browser_flow"]) {
     const browserAction = response(2).result.tools.find(tool => tool.name === name);
     assert.equal(browserAction.annotations.destructiveHint, false);
   }
@@ -216,6 +218,20 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
     focused: true,
     spaceId: "space-1"
   });
+
+  writeToolCall(child, 15, "browser_flow", {
+    tabId: 42,
+    actions: [
+      { action: "snapshot" },
+      { action: "fill", ref: "e1", value: "query" },
+      { action: "click", ref: "e1" }
+    ]
+  });
+  await waitUntil(() => responses.length === 15);
+  const flow = JSON.parse(response(15).result.content[0].text);
+  assert.equal(flow.completed, true);
+  assert.equal(flow.tabId, 42);
+  assert.deepEqual(flow.steps.map(step => step.action), ["snapshot", "fill", "click"]);
 });
 
 function writeToolCall(child, id, name, args) {

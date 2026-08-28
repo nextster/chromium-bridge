@@ -20,8 +20,8 @@ Use the `chromium-bridge` MCP server for all webpage and browser interaction.
 1. Start routine work with one `snapshot` call. It already targets the active tab and returns its `tabId`, title, URL, text, headings, and element refs. Do not call `status` or `active_tab` first.
 2. Reuse the returned `tabId` on later calls. This avoids active-tab lookup and prevents operating on a tab the user switched to.
 3. Reuse refs until navigation or a substantial DOM replacement. Do not snapshot again merely to reconfirm an unchanged page.
-4. Set `snapshotAfter: true` on `click`, `fill`, or `select` when the immediate result must be inspected. Use `settleMs` only when the page needs a short render delay.
-5. For asynchronous updates, call `wait_for` with `snapshotAfter: true` so waiting and inspection happen in one tool call.
+4. Once refs are known, prefer one `browser_flow` call for deterministic sequences such as `fill → click → wait_for → snapshot`. Keep any action that needs new judgment or confirmation outside the flow.
+5. For a single action, set `snapshotAfter: true` on `click`, `fill`, or `select` when the immediate result must be inspected. For asynchronous updates, call `wait_for` with `snapshotAfter: true`.
 6. Use `list_tabs` only to select a non-active tab. Use `active_tab` only when metadata is needed without page content. Use `status` only after a bridge error or for explicit diagnostics.
 7. Use snapshot defaults first. Increase `maxElements` or `maxTextChars` only when needed content was truncated; request `includeRects` only for coordinate or layout questions.
 8. Take screenshots only when visual evidence matters. Keep the fast JPEG default; request PNG only for pixel-exact or small-text inspection.
@@ -35,7 +35,7 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 - After the user supplies requested information or confirmation, resume the pending browser action immediately. Do not restate the plan.
 - Budget one snapshot per stable page state. Do not call `status`, `active_tab`, `list_tabs`, or `screenshot` as reassurance when the current `tabId` and refs remain valid.
 - On large result pages, prefer one read-only `evaluate` that returns a small structured candidate list over repeated snapshots, scrolling, or one-tool-per-item inspection.
-- When several already-authorized DOM operations are deterministic and require no intermediate judgment, perform them in one `evaluate` call. Keep purchase, payment, message-send, publish, and other externally consequential actions separate for confirmation.
+- When several already-authorized actions are deterministic and require no intermediate judgment, use `browser_flow`. Use one `evaluate` only when a structured bulk read cannot be expressed by snapshot. Keep purchase, payment, message-send, publish, and other externally consequential actions separate for confirmation.
 - Use `snapshotAfter` or `wait_for(snapshotAfter: true)` to combine action, settling, and inspection. Avoid fixed sleeps; give `wait_for` the shortest realistic timeout.
 - Treat a stale ref or actual navigation as the reason for a fresh snapshot. Do not preemptively refresh state.
 
