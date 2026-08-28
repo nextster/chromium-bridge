@@ -25,6 +25,7 @@ Use the `chromium-bridge` MCP server for all webpage and browser interaction.
 6. Use `list_tabs` only to select a non-active tab. Use `active_tab` only when metadata is needed without page content. Use `status` only after a bridge error or for explicit diagnostics.
 7. Use snapshot defaults first. Increase `maxElements` or `maxTextChars` only when needed content was truncated; request `includeRects` only for coordinate or layout questions.
 8. Take screenshots only when visual evidence matters. Keep the fast JPEG default; request PNG only for pixel-exact or small-text inspection.
+9. When a catalog reports result counts but its product cards are absent, treat it as virtualized content: use `scroll` with `snapshotAfter: true`, or include `scroll → wait_for → snapshot` in one `browser_flow`, before concluding that products are unavailable.
 
 Prefer the fewest semantically complete tool calls. Independent read-only operations on different tabs may run in parallel; actions on one tab remain ordered.
 

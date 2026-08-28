@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { findCodexCli } from "./codex-cli.mjs";
@@ -162,7 +162,41 @@ async function installCodexPlugin(nodePath, codexPath) {
     await execFileAsync(codexPath, ["plugin", "remove", pluginId, "--json"]);
   }
   const installed = await runJson(codexPath, ["plugin", "add", pluginId, "--json"]);
-  return { skipped: false, command: codexPath, pluginId, marketplaceRoot: installedMarketplaceDir, removedObsolete, installed };
+  const compatibilityPath = await installCodexCacheCompatibilityPath(installed.installedPath);
+  return {
+    skipped: false,
+    command: codexPath,
+    pluginId,
+    marketplaceRoot: installedMarketplaceDir,
+    removedObsolete,
+    installed,
+    compatibilityPath
+  };
+}
+
+async function installCodexCacheCompatibilityPath(installedPath) {
+  if (!installedPath) return null;
+  const target = path.resolve(installedPath);
+  const pluginDir = path.dirname(target);
+  const marketplaceDir = path.dirname(pluginDir);
+  if (
+    path.basename(pluginDir) !== "chromium-bridge" ||
+    path.basename(marketplaceDir) !== "chromium-bridge"
+  ) {
+    return null;
+  }
+  const compatibilityPath = path.join(marketplaceDir, path.basename(target));
+  if (compatibilityPath === target) return null;
+  await mkdir(marketplaceDir, { recursive: true, mode: 0o700 });
+  try {
+    const existing = await lstat(compatibilityPath);
+    if (!existing.isSymbolicLink()) return null;
+    await rm(compatibilityPath, { force: true });
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  await symlink(path.relative(marketplaceDir, target), compatibilityPath, "dir");
+  return compatibilityPath;
 }
 
 async function migrateLegacyState() {

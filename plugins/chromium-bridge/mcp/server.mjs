@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.6.3";
+const SERVER_VERSION = "0.6.4";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_BRIDGE_SOCKET ||
@@ -72,6 +72,13 @@ const tools = [
     maxTextChars: integerProperty("Maximum visible-text characters to return.", 0, 20000),
     includeRects: booleanProperty("Include element coordinates. Defaults to false to keep responses small.")
   }, readOnly),
+  tool("scroll", "Scroll the page to render virtualized or lazy-loaded content. Scrolls down 700 pixels by default, or brings a snapshot ref into view.", {
+    tabId: tabProperty(),
+    ref: stringProperty("Optional element ref to bring into view before applying offsets."),
+    deltaX: integerProperty("Horizontal scroll offset in pixels. Defaults to 0.", -10000, 10000),
+    deltaY: integerProperty("Vertical scroll offset in pixels. Defaults to 700.", -10000, 10000),
+    ...postActionProperties()
+  }, browserMutation),
   tool("click", "Click an element ref from the latest snapshot. Inspect the target before clicks that can submit or trigger an external action.", {
     ref: stringProperty("Element ref from snapshot, for example e3."),
     tabId: tabProperty(),
@@ -286,6 +293,8 @@ async function callTool(name, args) {
     }
     case "snapshot":
       return snapshotResult(await pageSnapshot(args));
+    case "scroll":
+      return interactionResult(await scrollPage(args));
     case "click":
       return interactionResult(await clickElement(args));
     case "fill":
@@ -406,6 +415,22 @@ async function clickElement(args) {
   return finishInteraction(tabId, action, args);
 }
 
+async function scrollPage(args) {
+  const tabId = await resolveTabId(args.tabId);
+  const selector = args.ref ? resolveRef(tabId, args.ref) : "";
+  const deltaX = boundedInteger(args.deltaX, 0, -10000, 10000);
+  const deltaY = boundedInteger(args.deltaY, selector ? 0 : 700, -10000, 10000);
+  const action = await executeScript(tabId, `(() => {
+    const selector = ${JSON.stringify(selector)};
+    const element = selector ? document.querySelector(selector) : null;
+    if (selector && !element) throw new Error("Element is no longer present; take a new snapshot");
+    element?.scrollIntoView({ block: "center", inline: "center" });
+    window.scrollBy({ left: ${deltaX}, top: ${deltaY}, behavior: "instant" });
+    return { scrolled: true, target: selector || "window", x: window.scrollX, y: window.scrollY };
+  })()`);
+  return finishInteraction(tabId, action, args);
+}
+
 async function fillElement(args) {
   const tabId = await resolveTabId(args.tabId);
   const selector = resolveRef(tabId, args.ref);
@@ -516,6 +541,9 @@ async function runBrowserFlow(args) {
       switch (action) {
         case "snapshot":
           result = await pageSnapshot({ ...step, tabId });
+          break;
+        case "scroll":
+          result = await scrollPage({ ...step, tabId });
           break;
         case "click":
           result = await clickElement({ ...step, tabId });
@@ -1017,9 +1045,11 @@ function flowActionSchema() {
     properties: {
       action: {
         type: "string",
-        enum: ["snapshot", "click", "fill", "select", "wait_for", "navigate", "back", "forward", "reload"]
+        enum: ["snapshot", "scroll", "click", "fill", "select", "wait_for", "navigate", "back", "forward", "reload"]
       },
       ref: stringProperty("Element ref from the latest snapshot."),
+      deltaX: integerProperty("Horizontal scroll offset in pixels.", -10000, 10000),
+      deltaY: integerProperty("Vertical scroll offset in pixels.", -10000, 10000),
       value: stringProperty("Value for fill or select."),
       url: stringProperty("Destination URL for navigate."),
       text: stringProperty("Visible text for wait_for."),

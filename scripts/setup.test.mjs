@@ -25,6 +25,9 @@ const args = process.argv.slice(2);
 appendFileSync(process.env.CODEX_TEST_LOG, JSON.stringify(args) + "\\n");
 if (args.join(" ") === "plugin marketplace list --json") console.log(JSON.stringify({ marketplaces: [] }));
 else if (args.join(" ") === "plugin list --json") console.log(JSON.stringify({ installed: [] }));
+else if (args.join(" ") === "plugin add chromium-bridge@chromium-bridge --json") console.log(JSON.stringify({
+  installedPath: process.env.CODEX_TEST_INSTALLED_PATH
+}));
 else console.log(JSON.stringify({ ok: true }));
 `, { mode: 0o700 });
   await chmod(codexPath, 0o700);
@@ -57,6 +60,7 @@ else console.log(JSON.stringify({ ok: true }));
         ...process.env,
         HOME: home,
         CODEX_TEST_LOG: logPath,
+        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.4"),
         PATH: `${binDir}:${process.env.PATH}`
       }
     });
@@ -81,6 +85,10 @@ else console.log(JSON.stringify({ ok: true }));
     assert.ok(calls.some(args => args.join(" ") === "plugin add chromium-bridge@chromium-bridge --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin remove chromium-sidecar@chromium-sidecar --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin marketplace remove chromium-sidecar --json"));
+    assert.equal(
+      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.4")),
+      path.join("chromium-bridge", "0.6.4")
+    );
 
     const retainedCapture = path.join(home, ".chromium-bridge", "captures", "kept.txt");
     assert.equal(await readFile(retainedCapture, "utf8"), "keep");
@@ -102,6 +110,7 @@ else console.log(JSON.stringify({ ok: true }));
     const uninstallCalls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@chromium-bridge --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
+    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.4")));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

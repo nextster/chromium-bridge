@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { findCodexCli } from "./codex-cli.mjs";
@@ -45,6 +45,7 @@ if (codexPath) {
     }
   }
 }
+if (!dryRun) await removeCodexCacheCompatibilityPaths();
 
 const nativeHost = JSON.parse((await execFileAsync(process.execPath, [
   installerPath,
@@ -114,6 +115,29 @@ async function runOptional(command, commandArgs) {
       reason: String(error?.stderr || error?.message || error).trim()
     };
   }
+}
+
+async function removeCodexCacheCompatibilityPaths() {
+  const cacheDir = path.join(
+    process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
+    "plugins",
+    "cache",
+    "chromium-bridge"
+  );
+  let entries;
+  try {
+    entries = await readdir(cacheDir);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  await Promise.all(entries.filter(entry => /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(entry)).map(async entry => {
+    const candidate = path.join(cacheDir, entry);
+    const stat = await lstat(candidate);
+    if (!stat.isSymbolicLink()) return;
+    const target = await readlink(candidate);
+    if (target === path.join("chromium-bridge", entry)) await rm(candidate, { force: true });
+  }));
 }
 
 function parseJson(value) {
