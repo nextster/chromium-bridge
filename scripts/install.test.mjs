@@ -29,6 +29,7 @@ test("shell installer verifies and installs its portable Node fallback", async (
     const { stdout } = await execFileAsync("sh", [
       path.join(projectDir, "install.sh"),
       "--dry-run",
+      "--source",
       "--no-codex",
       "--no-open"
     ], {
@@ -70,7 +71,8 @@ test("shell installer migrates the previous state directory before selecting Nod
       path.join(projectDir, "install.sh"),
       "--host-only",
       "--no-codex",
-      "--no-open"
+      "--no-open",
+      "--no-wait"
     ], {
       env: {
         ...process.env,

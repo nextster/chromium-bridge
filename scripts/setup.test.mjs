@@ -50,7 +50,8 @@ else console.log(JSON.stringify({ ok: true }));
     const { stdout } = await execFileAsync(process.execPath, [
       path.join(projectDir, "scripts", "setup.mjs"),
       "--host-only",
-      "--no-open"
+      "--no-open",
+      "--no-wait"
     ], {
       env: {
         ...process.env,
@@ -130,6 +131,7 @@ test("source setup preserves the previous unpacked extension path as a symlink",
   try {
     const { stdout } = await execFileAsync(process.execPath, [
       path.join(projectDir, "scripts", "setup.mjs"),
+      "--source",
       "--no-codex",
       "--no-open"
     ], { env: { ...process.env, HOME: home } });
