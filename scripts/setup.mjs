@@ -7,6 +7,7 @@ import { cp, lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { findCodexCli } from "./codex-cli.mjs";
+import { bridgeKind, storeReadinessStep } from "./store-migration.mjs";
 
 const execFileAsync = promisify(execFile);
 const rawArgs = process.argv.slice(2);
@@ -32,6 +33,8 @@ const installerPath = path.join(projectDir, "native-host", "src", "install.mjs")
 const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
 const storeMode = Boolean(configuredStoreExtensionId) && !sourceMode;
 const hostOnly = requestedHostOnly || storeMode;
+const existingDevelopmentExtension = storeMode && existsSync(installedExtensionDir);
+const refreshDevelopmentExtension = !hostOnly || existingDevelopmentExtension;
 const storeUrl = configuredStoreExtensionId
   ? `https://chromewebstore.google.com/detail/chromium-bridge/${configuredStoreExtensionId}`
   : "";
@@ -45,7 +48,7 @@ if (Number(process.versions.node.split(".")[0]) < 20) {
 
 const migration = await migrateLegacyState();
 
-if (!dryRun && !hostOnly) {
+if (!dryRun && refreshDevelopmentExtension) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   await rm(temporaryExtensionDir, { recursive: true, force: true });
   await cp(sourceExtensionDir, temporaryExtensionDir, { recursive: true });
@@ -64,7 +67,7 @@ const hostResult = await runJson(process.execPath, [
   ...(extensionId ? ["--extension-id", extensionId] : [])
 ]);
 let extensionReload = { attempted: false, reloaded: false };
-if (!dryRun && !hostOnly) {
+if (!dryRun && refreshDevelopmentExtension) {
   extensionReload = await reloadRunningExtension(hostResult.cliLauncherPath);
 }
 let codexResult = { skipped: true, reason: skipCodex ? "disabled by --no-codex" : "Codex CLI not found" };
@@ -85,14 +88,25 @@ if (!skipOpen && !dryRun && storeMode && browser) {
 
 let readiness = null;
 if (!dryRun && storeMode && waitForBrowser) {
-  readiness = await waitUntilReady(hostResult.cliLauncherPath, waitSeconds());
+  readiness = await waitUntilReady(
+    hostResult.cliLauncherPath,
+    waitSeconds(),
+    configuredStoreExtensionId,
+    hostResult.extensionId
+  );
 }
+const developmentCleanup = readiness?.ready
+  ? await cleanupDevelopmentExtensionFiles()
+  : { removed: false };
 
 const next = readiness?.ready
   ? ["Chromium Bridge is ready. Start a new Codex task to use it."]
   : storeMode
   ? [
       `Install Chromium Bridge from ${storeUrl}`,
+      ...(readiness?.migration?.error
+        ? ["Remove the unpacked Chromium Bridge extension manually, then rerun setup"]
+        : []),
       "Approve local browser access in the onboarding page",
       "Enable Allow User Scripts in the extension details",
       ...(!skipCodex && !codexResult.skipped ? ["Restart Codex to activate the plugin"] : [])
@@ -125,6 +139,8 @@ console.log(JSON.stringify({
   storeExtensionId: configuredStoreExtensionId || null,
   mode: storeMode ? "store" : hostOnly ? "host-only" : "source",
   extensionReload,
+  developmentMigration: readiness?.migration || null,
+  developmentCleanup,
   nativeHost: {
     stateDir: hostResult.stateDir,
     browsers: hostResult.browserRegistrations.map(item => item.browser),
@@ -266,21 +282,33 @@ async function installCodexMarketplace(nodePath) {
   }
 }
 
-async function waitUntilReady(cliPath, timeoutSeconds) {
+async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, developmentExtensionId) {
   console.error("Waiting for Store installation and browser approval...");
   const deadline = Date.now() + timeoutSeconds * 1000;
   let lastStep = "";
   let lastError = "";
+  let migration = { requested: false };
+  let nextMigrationAttempt = 0;
   while (Date.now() < deadline) {
     try {
       const status = await runJson(cliPath, ["status"], 7000);
-      const step = readinessStep(status.extension);
+      const kind = bridgeKind(status, storeExtensionId, developmentExtensionId);
+      if (kind === "development" && !migration.requested && Date.now() >= nextMigrationAttempt) {
+        migration = await requestDevelopmentUninstall(cliPath);
+        nextMigrationAttempt = Date.now() + 5000;
+        if (migration.requested) {
+          console.error("Removed the unpacked development extension; waiting for the Store version...");
+          await delay(500);
+          continue;
+        }
+      }
+      const step = storeReadinessStep(status, storeExtensionId, developmentExtensionId);
       if (step !== lastStep) {
         console.error(step);
         lastStep = step;
       }
       if (step === "Browser and Codex bridge are ready.") {
-        return { ready: true, checkedAt: new Date().toISOString(), status };
+        return { ready: true, checkedAt: new Date().toISOString(), status, migration };
       }
     } catch (error) {
       lastError = String(error?.stderr || error?.message || error).trim();
@@ -292,19 +320,44 @@ async function waitUntilReady(cliPath, timeoutSeconds) {
     timedOut: true,
     timeoutSeconds,
     ...(lastStep ? { step: lastStep } : {}),
-    ...(lastError ? { error: lastError } : {})
+    ...(lastError ? { error: lastError } : {}),
+    migration
   };
 }
 
-function readinessStep(extension) {
-  if (!extension?.pong) return "Install the extension from the Store page.";
-  if (!extension.privacy?.consented || !extension.permissions?.siteAccess || !extension.permissions?.tabs) {
-    return "Approve local browser access in the Chromium Bridge onboarding page.";
+async function requestDevelopmentUninstall(cliPath) {
+  try {
+    const result = await runJson(
+      cliPath,
+      ["command", "runtime.uninstallDevelopment", "{}"],
+      5000
+    );
+    if (result.uninstalling) return { requested: true, result };
+    return { requested: false, refused: true, result };
+  } catch (error) {
+    return {
+      requested: false,
+      error: String(error?.stderr || error?.message || error).trim()
+    };
   }
-  if (!extension.userScriptsAvailable) {
-    return "Open extension details and enable Allow User Scripts.";
+}
+
+async function cleanupDevelopmentExtensionFiles() {
+  const removed = [];
+  if (existsSync(installedExtensionDir)) {
+    await rm(installedExtensionDir, { recursive: true, force: true });
+    removed.push(installedExtensionDir);
   }
-  return "Browser and Codex bridge are ready.";
+  const legacyExtensionPath = path.join(legacyStateDir, "extension");
+  try {
+    if ((await lstat(legacyExtensionPath)).isSymbolicLink()) {
+      await rm(legacyExtensionPath, { force: true });
+      removed.push(legacyExtensionPath);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return { removed: removed.length > 0, paths: removed };
 }
 
 async function reloadRunningExtension(cliPath) {

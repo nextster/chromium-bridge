@@ -69,6 +69,12 @@ For a source build, complete these browser steps once:
 
 Run the one-command installer again to update installed components. Useful options are `--no-open`, `--no-wait`, `--no-codex`, and `--dry-run`. Set `CHROMIUM_BRIDGE_REF=main` only when intentionally testing the unreleased development branch.
 
+### Migrating from Load unpacked
+
+Run the normal installation command. The installer refreshes the managed unpacked copy, verifies that the connected extension has the development ID, removes only that development extension, and opens the Store listing. Chromium still requires one explicit **Add to browser** confirmation. The installer then waits for the exact Store ID, new popup consent, and Allow User Scripts before deleting the obsolete local extension files.
+
+An unpacked extension loaded directly from an arbitrary source checkout may be too old for automatic removal. In that case, remove that one development extension from the browser extensions page and rerun the installer; the Native Messaging host, Codex plugin, and captures remain intact.
+
 ## Store installation
 
 The Chrome Web Store can distribute only the extension. The Native Messaging host and Codex plugin remain a separate local companion because browser stores cannot install native executables.
@@ -198,6 +204,7 @@ New integrations should use `CHROMIUM_BRIDGE_*`, `com.chromium_bridge.bridge`, a
 npm test
 npm run package:extension
 npm run package:store
+npm run package:source
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for release and code-quality expectations. `npm run uninstall` performs a local source-checkout uninstall; `npm run uninstall-host` removes only Native Messaging manifests and runtime launchers.

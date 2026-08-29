@@ -1,6 +1,6 @@
 {
   "name": "chromium-bridge",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Local agent bridge for authenticated Chromium browsers, with a Codex plugin and optional Arc Spaces support.",
   "type": "module",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "test": "npm run check && node --test scripts/*.test.mjs && npm --prefix native-host test && npm --prefix plugins/chromium-bridge test && node scripts/setup.mjs --dry-run --no-codex --no-open",
     "package:extension": "node scripts/package-extension.mjs",
     "package:store": "node scripts/package-extension.mjs --store",
+    "package:source": "node scripts/package-source.mjs",
     "configure:store": "node scripts/configure-store.mjs"
   }
 }

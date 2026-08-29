@@ -35,12 +35,19 @@ if (!installer.includes(`ref="\${CHROMIUM_BRIDGE_REF:-${releaseTag}}"`)) {
   throw new Error(`install.sh default ref does not match ${releaseTag}`);
 }
 
-const formula = await readFile(path.join(projectDir, "Formula", "chromium-bridge.rb"), "utf8");
-if (!formula.includes(`/archive/refs/tags/${releaseTag}.tar.gz`)) {
-  throw new Error(`Homebrew Formula URL does not match ${releaseTag}`);
+let formula = "";
+try {
+  formula = await readFile(path.join(projectDir, "Formula", "chromium-bridge.rb"), "utf8");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
 }
-if (!/^  sha256 "[a-f0-9]{64}"$/m.test(formula)) {
-  throw new Error("Homebrew Formula does not contain a valid SHA-256");
+if (formula) {
+  if (!formula.includes(`/releases/download/${releaseTag}/chromium-bridge-${rootPackage.version}.tar.gz`)) {
+    throw new Error(`Homebrew Formula URL does not match ${releaseTag}`);
+  }
+  if (!/^  sha256 "(?!0{64})[a-f0-9]{64}"$/m.test(formula)) {
+    throw new Error("Homebrew Formula does not contain a valid non-placeholder SHA-256");
+  }
 }
 
 const textFiles = files.filter(file => /\.(?:js|mjs|sh|rb|json|md|html|css|yml|yaml)$/i.test(file));

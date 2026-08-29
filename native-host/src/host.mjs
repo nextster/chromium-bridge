@@ -66,7 +66,8 @@ const CONSENT_FREE_EXTENSION_COMMANDS = new Set([
   "ping",
   "privacy.status",
   "native.reconnect",
-  "runtime.reload"
+  "runtime.reload",
+  "runtime.uninstallDevelopment"
 ]);
 
 let extensionInfo = null;

@@ -1,4 +1,5 @@
 import { createTabAndWait, navigateTabAndWait } from "./tab-navigation.js";
+import { scheduleDevelopmentUninstall } from "./development-migration.js";
 import {
   captureOptions,
   extractCapturedRequestBody,
@@ -308,6 +309,8 @@ async function handleCommand(message, context = {}) {
     case "runtime.reload":
       setTimeout(() => chrome.runtime.reload(), 250);
       return { reloading: true, version: EXTENSION_VERSION };
+    case "runtime.uninstallDevelopment":
+      return scheduleDevelopmentUninstall(chrome.management);
   }
 
   await requireBrowserAccess();

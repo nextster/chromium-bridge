@@ -22,4 +22,4 @@ Do not commit captures, credentials, private keys, developer-dashboard exports, 
 
 Keep versions synchronized across the extension, host, packages, and Codex plugin. Build the Store archive with `npm run package:store`; do not upload the development ZIP to the Chrome Web Store because it contains the unpacked-development key.
 
-After tagging a release, update the default `ref` in `install.sh` and the version, URL, and SHA-256 in `Formula/chromium-bridge.rb`. Verify the Formula with `brew style`, `brew audit --strict`, and a local install before pushing.
+For a release, stage the complete source tree and run `npm run package:source`. The deterministic archive excludes `Formula/`, so its SHA-256 can be recorded in `Formula/chromium-bridge.rb` without a self-reference. Update the default `ref` in `install.sh`, then verify the Formula with `brew style`, `brew audit --strict`, and a local install before pushing.
