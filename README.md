@@ -81,11 +81,10 @@ curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/insta
 
 ## Homebrew
 
-The curl installer remains the shortest path and does not require Homebrew. Users who prefer Homebrew can install the companion from this repository as a custom tap:
+The curl installer remains the shortest path and does not require Homebrew. Users who prefer Homebrew can install the companion from the official nextster tap:
 
 ```bash
-brew tap nextster/chromium-bridge https://github.com/nextster/chromium-bridge
-brew install chromium-bridge
+brew install nextster/tap/chromium-bridge
 chromium-bridge setup
 ```
 
@@ -104,7 +103,6 @@ Before removing the Formula, unregister the companion and Codex plugin:
 ```bash
 chromium-bridge uninstall
 brew uninstall chromium-bridge
-brew untap nextster/chromium-bridge
 ```
 
 ## Update and uninstall
