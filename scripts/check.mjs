@@ -29,7 +29,21 @@ for (const [file, key] of versionFiles) {
   if (value !== rootPackage.version) throw new Error(`${file} version ${value} does not match ${rootPackage.version}`);
 }
 
-const textFiles = files.filter(file => /\.(?:js|mjs|sh|json|md|html|css|yml|yaml)$/i.test(file));
+const releaseTag = `v${rootPackage.version}`;
+const installer = await readFile(path.join(projectDir, "install.sh"), "utf8");
+if (!installer.includes(`ref="\${CHROMIUM_BRIDGE_REF:-${releaseTag}}"`)) {
+  throw new Error(`install.sh default ref does not match ${releaseTag}`);
+}
+
+const formula = await readFile(path.join(projectDir, "Formula", "chromium-bridge.rb"), "utf8");
+if (!formula.includes(`/archive/refs/tags/${releaseTag}.tar.gz`)) {
+  throw new Error(`Homebrew Formula URL does not match ${releaseTag}`);
+}
+if (!/^  sha256 "[a-f0-9]{64}"$/m.test(formula)) {
+  throw new Error("Homebrew Formula does not contain a valid SHA-256");
+}
+
+const textFiles = files.filter(file => /\.(?:js|mjs|sh|rb|json|md|html|css|yml|yaml)$/i.test(file));
 for (const file of textFiles) {
   const text = await readFile(path.join(projectDir, file), "utf8");
   if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) {

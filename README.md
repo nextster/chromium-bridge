@@ -15,7 +15,7 @@ The portable extension core handles tabs, compact page snapshots, interactions, 
 
 Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before using raw cookie or capture modes.
 
-## One-command installation
+## Install
 
 Requirements:
 
@@ -29,17 +29,17 @@ Run:
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh
 ```
 
+The installer opens the [Unlisted Chrome Web Store listing](https://chromewebstore.google.com/detail/chromium-bridge/lgfjelplnddfhmjjbhmmmmiglbgkeilb). Chromium requires one explicit **Add to browser** confirmation; approve local browser access in the extension popup and enable **Allow User Scripts** when prompted.
+
 The installer:
 
 1. Uses an existing Node.js 20+ runtime, or installs a pinned and SHA-256-verified Node.js runtime under `~/.chromium-bridge`.
 2. Installs the Native Messaging host and CLI for supported Chromium browsers.
 3. Copies the Codex marketplace to a persistent location and registers the Chromium Bridge plugin.
-4. When a Store item ID is configured, opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
+4. Opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
 5. Reports readiness after the browser bridge answers a live status check.
 
 No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. Restart Codex after first installation so it loads the plugin.
-
-Until `store/item.json` contains a published Store item ID, the same command installs the development extension under `~/.chromium-bridge/extension` and opens the browser extensions page. Development mode still requires selecting **Load unpacked** once.
 
 To inspect the installer before running it:
 
@@ -49,12 +49,12 @@ less chromium-bridge-install.sh
 sh chromium-bridge-install.sh
 ```
 
-The equivalent source installation is:
+The equivalent development installation is:
 
 ```bash
 git clone https://github.com/nextster/chromium-bridge.git
 cd chromium-bridge
-npm run setup
+npm run setup -- --source
 ```
 
 The setup command copies the unpacked extension and native runtime under `~/.chromium-bridge`, registers the Native Messaging host, and installs the local Codex plugin.
@@ -67,23 +67,49 @@ For a source build, complete these browser steps once:
 4. Open the extension details and enable **Allow User Scripts**.
 5. Reload Codex after the plugin is installed.
 
-Run the one-command installer again to update installed components. Source developers can use `npm run setup -- --source`. Useful options are `--no-open`, `--no-wait`, `--no-codex`, and `--dry-run`.
+Run the one-command installer again to update installed components. Useful options are `--no-open`, `--no-wait`, `--no-codex`, and `--dry-run`. Set `CHROMIUM_BRIDGE_REF=main` only when intentionally testing the unreleased development branch.
 
 ## Store installation
 
 The Chrome Web Store can distribute only the extension. The Native Messaging host and Codex plugin remain a separate local companion because browser stores cannot install native executables.
 
-After the Store item is published and recorded in `store/item.json`, the normal one-command installer automatically uses Store mode. An explicit host-only installation remains available:
+The normal one-command installer uses Store mode. An explicit host-only installation remains available when the extension is already installed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh -s -- --host-only
 ```
 
-Until `store/item.json` contains the final item ID, pass it explicitly with `--extension-id ITEM_ID`.
+## Homebrew
+
+The curl installer remains the shortest path and does not require Homebrew. Users who prefer Homebrew can install the companion from this repository as a custom tap:
+
+```bash
+brew tap nextster/chromium-bridge https://github.com/nextster/chromium-bridge
+brew install chromium-bridge
+chromium-bridge setup
+```
+
+`brew install` installs the versioned companion and its Node.js dependency. The explicit `setup` command registers the Native Messaging host for supported browsers, installs the Codex plugin, opens the Store listing, and performs the same readiness check as the curl installer.
+
+Upgrade and re-register the installed companion with:
+
+```bash
+brew update
+brew upgrade chromium-bridge
+chromium-bridge setup
+```
+
+Before removing the Formula, unregister the companion and Codex plugin:
+
+```bash
+chromium-bridge uninstall
+brew uninstall chromium-bridge
+brew untap nextster/chromium-bridge
+```
 
 ## Update and uninstall
 
-Update by running the installation command again, or explicitly:
+For curl installations, update by running the installation command again, or explicitly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh -s -- update
@@ -150,7 +176,7 @@ Node.js runs the Native Messaging host, CLI, installer, tests, and Codex MCP ser
 npm run package:store
 ```
 
-This creates a validated Store ZIP without the development `key`. After creating the draft item, record its ID:
+This creates a validated Store ZIP without the development `key`. The published Store item ID is recorded in `store/item.json`. To change it for a fork or a replacement item:
 
 ```bash
 npm run configure:store -- ITEM_ID
