@@ -43,6 +43,8 @@ const obsoleteLauncherPaths = [
 ];
 const installedHostPath = path.join(runtimeDir, "host.mjs");
 const installedCliPath = path.join(runtimeDir, "cli.mjs");
+const runtimeBootstrapPath = path.join(runtimeDir, "runtime-bootstrap.mjs");
+const runtimeMetadataPath = path.join(runtimeDir, "runtime.json");
 const runtimeFiles = [
   "arc-provider.mjs",
   "cli.mjs",
@@ -50,7 +52,8 @@ const runtimeFiles = [
   "native-protocol.mjs",
   "open-directory.mjs",
   "replay.mjs",
-  "host.mjs"
+  "host.mjs",
+  "runtime-bootstrap.mjs"
 ];
 const browserRegistrations = nativeMessagingDirectories().map(browser => ({
   ...browser,
@@ -70,7 +73,8 @@ if (uninstall) {
       unlink(hostLauncherPath).catch(ignoreMissing),
       unlink(cliLauncherPath).catch(ignoreMissing),
       ...obsoleteLauncherPaths.map(filePath => unlink(filePath).catch(ignoreMissing)),
-      ...runtimeFiles.map(fileName => unlink(path.join(runtimeDir, fileName)).catch(ignoreMissing))
+      ...runtimeFiles.map(fileName => unlink(path.join(runtimeDir, fileName)).catch(ignoreMissing)),
+      unlink(runtimeMetadataPath).catch(ignoreMissing)
     ]);
   }
   console.log(JSON.stringify({
@@ -103,14 +107,15 @@ extensionIds.forEach(validateExtensionId);
 const allowedOrigins = extensionIds.map(id => `chrome-extension://${id}/`);
 
 const nodePath = await findNode();
+const packageJson = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8"));
 const hostLauncher = [
   "#!/bin/sh",
   `CHROMIUM_BRIDGE_ALLOWED_ORIGINS=${sh(allowedOrigins.join(","))}`,
   "export CHROMIUM_BRIDGE_ALLOWED_ORIGINS",
-  `exec ${sh(nodePath)} ${sh(installedHostPath)} "$@"`,
+  `exec ${sh(nodePath)} ${sh(runtimeBootstrapPath)} 'native-host' "$@"`,
   ""
 ].join("\n");
-const cliLauncher = `#!/bin/sh\nexec ${sh(nodePath)} ${sh(installedCliPath)} "$@"\n`;
+const cliLauncher = `#!/bin/sh\nexec ${sh(nodePath)} ${sh(runtimeBootstrapPath)} 'cli' "$@"\n`;
 const hostManifest = nativeHostManifest(NATIVE_HOST_NAME, hostLauncherPath, extensionIds);
 
 if (!dryRun) {
@@ -127,6 +132,11 @@ if (!dryRun) {
   for (const fileName of runtimeFiles) {
     await atomicWrite(path.join(runtimeDir, fileName), await readFile(path.join(sourceDir, fileName)), 0o600);
   }
+  await atomicWrite(runtimeMetadataPath, `${JSON.stringify({
+    schemaVersion: 1,
+    version: packageJson.version,
+    source: "bundled"
+  }, null, 2)}\n`, 0o600);
   await atomicWrite(hostLauncherPath, hostLauncher, 0o700);
   await atomicWrite(cliLauncherPath, cliLauncher, 0o700);
   for (const registration of browserRegistrations) {
@@ -150,6 +160,8 @@ console.log(JSON.stringify({
   obsoleteLauncherPaths,
   installedHostPath,
   installedCliPath,
+  runtimeBootstrapPath,
+  runtimeMetadataPath,
   runtimeFiles,
   hostManifest
 }, null, 2));

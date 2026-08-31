@@ -14,6 +14,7 @@ const rawArgs = process.argv.slice(2);
 const args = new Set(rawArgs);
 const skipCodex = args.has("--no-codex");
 const skipOpen = args.has("--no-open");
+const skipExtension = args.has("--no-extension");
 const dryRun = args.has("--dry-run");
 const sourceMode = args.has("--source");
 const requestedHostOnly = args.has("--host-only");
@@ -29,12 +30,13 @@ const stateDir = path.resolve(
 const installedExtensionDir = path.join(stateDir, "extension");
 const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
 const installedMarketplaceDir = path.join(stateDir, "codex-marketplace");
+const developmentLinkPath = path.join(stateDir, "dev-link.json");
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
 const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
 const storeMode = Boolean(configuredStoreExtensionId) && !sourceMode;
 const hostOnly = requestedHostOnly || storeMode;
 const existingDevelopmentExtension = storeMode && existsSync(installedExtensionDir);
-const refreshDevelopmentExtension = !hostOnly || existingDevelopmentExtension;
+const refreshDevelopmentExtension = !skipExtension && (!hostOnly || existingDevelopmentExtension);
 const storeUrl = configuredStoreExtensionId
   ? `https://chromewebstore.google.com/detail/chromium-bridge/${configuredStoreExtensionId}`
   : "";
@@ -47,6 +49,8 @@ if (Number(process.versions.node.split(".")[0]) < 20) {
 }
 
 const migration = await migrateLegacyState();
+
+if (!dryRun) await rm(developmentLinkPath, { force: true });
 
 if (!dryRun && refreshDevelopmentExtension) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
@@ -148,6 +152,7 @@ console.log(JSON.stringify({
     node: hostResult.nodePath
   },
   codex: codexResult,
+  developmentLinkReset: !dryRun,
   migration,
   readiness,
   next
@@ -263,6 +268,10 @@ async function installCodexMarketplace(nodePath) {
   const mcpPath = path.join(temporaryDir, "plugins", "chromium-bridge", ".mcp.json");
   const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8"));
   mcpConfig.mcpServers["chromium-bridge"].command = nodePath;
+  mcpConfig.mcpServers["chromium-bridge"].args = [
+    path.join(stateDir, "runtime", "runtime-bootstrap.mjs"),
+    "mcp"
+  ];
   await writeFile(mcpPath, `${JSON.stringify(mcpConfig, null, 2)}\n`, { mode: 0o600 });
 
   let backedUp = false;

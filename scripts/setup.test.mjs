@@ -50,6 +50,7 @@ else console.log(JSON.stringify({ ok: true }));
     await writeFile(legacyCapture, "keep");
     await writeFile(legacyCli, "old");
     await writeFile(legacyManifest, "{}");
+    await writeFile(path.join(home, ".chromium-sidecar", "dev-link.json"), "{}", { mode: 0o600 });
     const { stdout } = await execFileAsync(process.execPath, [
       path.join(projectDir, "scripts", "setup.mjs"),
       "--host-only",
@@ -60,7 +61,7 @@ else console.log(JSON.stringify({ ok: true }));
         ...process.env,
         HOME: home,
         CODEX_TEST_LOG: logPath,
-        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.6"),
+        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.7"),
         PATH: `${binDir}:${process.env.PATH}`
       }
     });
@@ -68,6 +69,8 @@ else console.log(JSON.stringify({ ok: true }));
     const marketplaceRoot = path.join(home, ".chromium-bridge", "codex-marketplace");
     assert.equal(result.migration.migrated, true);
     assert.equal(result.migration.moved, true);
+    assert.equal(result.developmentLinkReset, true);
+    await assert.rejects(access(path.join(home, ".chromium-bridge", "dev-link.json")));
     await assert.rejects(access(path.join(home, ".chromium-sidecar")));
     await assert.rejects(access(legacyManifest));
     await assert.rejects(access(path.join(home, ".chromium-bridge", "bin", "chromium-sidecar")));
@@ -80,14 +83,18 @@ else console.log(JSON.stringify({ ok: true }));
       await readFile(path.join(marketplaceRoot, "plugins", "chromium-bridge", ".mcp.json"), "utf8")
     );
     assert.equal(mcp.mcpServers["chromium-bridge"].command, result.nativeHost.node);
+    assert.deepEqual(mcp.mcpServers["chromium-bridge"].args, [
+      path.join(home, ".chromium-bridge", "runtime", "runtime-bootstrap.mjs"),
+      "mcp"
+    ]);
     const calls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(calls.some(args => args.join(" ") === `plugin marketplace add ${marketplaceRoot} --json`));
     assert.ok(calls.some(args => args.join(" ") === "plugin add chromium-bridge@chromium-bridge --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin remove chromium-sidecar@chromium-sidecar --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin marketplace remove chromium-sidecar --json"));
     assert.equal(
-      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.6")),
-      path.join("chromium-bridge", "0.6.6")
+      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.7")),
+      path.join("chromium-bridge", "0.6.7")
     );
 
     const retainedCapture = path.join(home, ".chromium-bridge", "captures", "kept.txt");
@@ -110,7 +117,7 @@ else console.log(JSON.stringify({ ok: true }));
     const uninstallCalls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@chromium-bridge --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
-    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.6")));
+    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.7")));
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -150,6 +157,30 @@ test("source setup preserves the previous unpacked extension path as a symlink",
       await readlink(path.join(home, ".chromium-sidecar", "extension")),
       path.join(home, ".chromium-bridge", "extension")
     );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("setup can refresh runtime and Codex without touching an existing development extension", {
+  skip: process.platform !== "darwin"
+}, async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-no-extension-"));
+  const extensionMarker = path.join(home, ".chromium-bridge", "extension", "marker.txt");
+  await mkdir(path.dirname(extensionMarker), { recursive: true });
+  await writeFile(extensionMarker, "unchanged");
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [
+      path.join(projectDir, "scripts", "setup.mjs"),
+      "--host-only",
+      "--no-extension",
+      "--no-codex",
+      "--no-open",
+      "--no-wait"
+    ], { env: { ...process.env, HOME: home } });
+    const result = JSON.parse(stdout);
+    assert.equal(result.extensionReload.attempted, false);
+    assert.equal(await readFile(extensionMarker, "utf8"), "unchanged");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

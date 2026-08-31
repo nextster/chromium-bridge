@@ -1,6 +1,6 @@
 {
   "name": "chromium-bridge",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Control an authenticated Chromium browser through a local Native Messaging bridge.",
   "author": {
     "name": "Artem"

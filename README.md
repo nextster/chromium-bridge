@@ -230,10 +230,20 @@ New integrations should use `CHROMIUM_BRIDGE_*`, `com.chromium_bridge.bridge`, a
 ## Development
 
 ```bash
+npm run dev:link
+npm run dev:status
 npm test
+npm run bridge -- extension-reload
 npm run package:extension
 npm run package:store
 npm run package:source
+npm run dev:unlink
 ```
+
+`npm run dev:link` performs the one-time Codex registration needed for the stable runtime bootstrap, then records the canonical path of the current checkout in an owner-only local pointer. Future MCP, CLI, and Native Messaging processes load their fixed entrypoints from that checkout, while ordinary setup and release packages continue to use the copied, versioned bundled runtime. Repeating `dev:link` for the same checkout is idempotent and does not remove or add the plugin again.
+
+The normal loop is: edit source, run tests, run `npm run bridge -- extension-reload` when extension or native-host code changed, then open a new Codex task. A new task is required after MCP tool-list or schema changes because MCP capabilities are fixed at `initialize`; already-open tasks are not hot-reloaded. Use `npm run dev:status` to compare the repository, installed plugin, configured and effective MCP entrypoint/cwd, bundled native runtime, current native-host process, and development pointer. `npm run dev:unlink` removes only that pointer and returns future processes to the installed bundled runtime.
+
+Moving or deleting a linked checkout makes the pointer invalid instead of silently executing another path. Run `npm run dev:link` from the new checkout location to repair it. Running ordinary `npm run setup` also clears development mode before refreshing the bundled installation.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for release and code-quality expectations. `npm run uninstall` performs a local source-checkout uninstall; `npm run uninstall-host` removes only Native Messaging manifests and runtime launchers.

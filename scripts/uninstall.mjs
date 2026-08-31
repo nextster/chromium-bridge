@@ -67,6 +67,7 @@ if (!dryRun) {
         "codex-marketplace",
         "current.json",
         "control.sock",
+        "dev-link.json",
         "extension",
         "node",
         "runtime"

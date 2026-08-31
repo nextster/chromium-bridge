@@ -48,8 +48,11 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
     "native-protocol.mjs",
     "open-directory.mjs",
     "replay.mjs",
-    "host.mjs"
+    "host.mjs",
+    "runtime-bootstrap.mjs"
   ]);
+  assert.match(result.runtimeBootstrapPath, /\.chromium-bridge\/runtime\/runtime-bootstrap\.mjs$/);
+  assert.match(result.hostManifest.path, /\.chromium-bridge\/bin\/chromium-bridge-host$/);
   assert.equal(result.hostManifest.path, result.hostLauncherPath);
   assert.deepEqual(result.obsoleteLauncherPaths.map(filePath => path.basename(filePath)), [
     "chromium-sidecar-host",
