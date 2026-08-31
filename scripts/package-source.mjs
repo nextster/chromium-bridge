@@ -17,6 +17,7 @@ const archiveRef = `${sourceRef}^{tree}`;
 const { stdout: archive } = await execFileAsync("git", [
   "archive",
   "--format=tar",
+  "--mtime=1980-01-01T00:00:00Z",
   `--prefix=chromium-bridge-${packageJson.version}/`,
   archiveRef,
   "--",
