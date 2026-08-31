@@ -44,6 +44,22 @@ async function main(name, argv) {
       return print(await extension("script.execute", scriptArgs(argv, "USER_SCRIPT")));
     case "eval-main":
       return print(await extension("script.execute", scriptArgs(argv, "MAIN")));
+    case "managed-script-list":
+      return print(await request("managedScripts.list"));
+    case "managed-script-get":
+      return print(await request("managedScripts.get", { id: required(argv[0], "managed script id") }));
+    case "managed-script-upsert":
+      return print(await request("managedScripts.upsert", parseJson(
+        required(argv.join(" "), "managed script JSON"),
+        "managed script JSON"
+      )));
+    case "managed-script-enable":
+      return print(await request("managedScripts.enable", {
+        id: required(argv[0], "managed script id"),
+        enabled: booleanArgument(argv[1], "enabled")
+      }));
+    case "managed-script-remove":
+      return print(await request("managedScripts.remove", { id: required(argv[0], "managed script id") }));
     case "cookies":
       return print(await extension("cookies.getAll", cookieArgs(argv)));
     case "capture-start":
@@ -155,6 +171,12 @@ function parseJson(value, label) {
   }
 }
 
+function booleanArgument(value, label) {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${label} must be true or false`);
+}
+
 function required(value, label) {
   if (!String(value || "").trim()) throw new Error(`Missing ${label}`);
   return value;
@@ -185,6 +207,11 @@ function usage() {
   chromium-bridge reload [tabId]
   chromium-bridge eval <tabId|active> <javascript>
   chromium-bridge eval-main <tabId|active> <javascript>
+  chromium-bridge managed-script-list
+  chromium-bridge managed-script-get <id>
+  chromium-bridge managed-script-upsert '<json-object>'
+  chromium-bridge managed-script-enable <id> <true|false>
+  chromium-bridge managed-script-remove <id>
   chromium-bridge cookies [url] [domain] [--raw]
   chromium-bridge capture-start (--filter <substring> | --all-urls) [--body] [--raw]
   chromium-bridge capture-stop

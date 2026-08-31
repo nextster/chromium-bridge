@@ -19,6 +19,7 @@
       <p>Chromium Bridge lets local tools you install read and control websites in this browser profile.</p>
       <ul>
         <li>Page content, URLs, and browser interactions may be sent to the local Native Messaging host.</li>
+        <li>Local tools may store and run persistent scripts on explicit websites until you disable, remove, or revoke them.</li>
         <li>Cookie access is optional. DevTools operations remain blocked until you approve local access.</li>
         <li>The extension has no developer-operated server. Your local tools decide where their outputs are processed.</li>
       </ul>
@@ -37,6 +38,7 @@
           <button id="reconnect" class="secondary">Reconnect</button>
         </div>
         <div id="scriptsDetail" class="detail"></div>
+        <button id="manageScripts" class="secondary wide">Manage persistent scripts</button>
         <button id="openScriptSettings" class="secondary wide hidden">Open extension settings</button>
       </section>
 

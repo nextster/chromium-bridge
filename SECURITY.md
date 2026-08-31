@@ -22,6 +22,12 @@ It does not expose an HTTP or TCP server. The extension rejects browser-data com
 
 Raw cookie and capture modes intentionally expose sensitive data and should be enabled only for a specific task. Captures persist locally until purged.
 
+Bridge-managed scripts are persistent code execution scoped to explicit `http://` or `https://` match patterns. Script ids are validated and mapped into the private `chromium-bridge-managed:` namespace; reconciliation and removal ignore every registration outside that namespace. `<all_urls>`, privileged schemes, oversized source, and malformed patterns are rejected. The isolated `USER_SCRIPT` world should be preferred; `MAIN` intentionally shares JavaScript state with the matched page and therefore has a larger page-level trust surface.
+
+All managed-script reads and mutations require the same popup consent and website permissions as other browser-data commands. Revoking consent unregisters Bridge-managed scripts while preserving their local records. Any trusted same-account client with access to the private control socket can request persistent script mutations, so users should review the source and match patterns before authorizing such automation.
+
+The extension UI may reveal only the Native Host's fixed state directory. Browser messages cannot supply a filesystem path, and the host launches the platform file manager with an argument array rather than a shell command.
+
 ## Installer runtime
 
 The public shell installer prefers an existing Node.js 20+ executable. If none is available, it downloads a pinned macOS Node.js archive over HTTPS, verifies the architecture-specific SHA-256 embedded in `install.sh`, and installs it only under `~/.chromium-bridge`. It does not use `sudo`, modify a global Node installation, or execute an unverified runtime archive.

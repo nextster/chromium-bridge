@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Managed Scripts - Chromium Bridge</title>
+    <link rel="stylesheet" href="scripts.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Managed Scripts</h1>
+        <div id="connectionStatus" class="status">Checking Chromium Bridge</div>
+      </div>
+      <div class="header-actions">
+        <button id="openDataFolder" class="secondary">Open Bridge data folder</button>
+        <button id="reloadScripts" class="icon-button" title="Reload scripts" aria-label="Reload scripts">↻</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="script-browser" aria-label="Managed scripts">
+        <div class="browser-toolbar">
+          <input id="searchScripts" type="search" placeholder="Search scripts" autocomplete="off">
+          <button id="newScript" class="primary">New script</button>
+        </div>
+        <div id="scriptList" class="script-list"></div>
+        <div id="emptyList" class="empty hidden">No managed scripts</div>
+        <div class="storage-detail">Canonical storage: browser profile</div>
+      </aside>
+
+      <section class="editor" aria-label="Script editor">
+        <form id="scriptForm">
+          <div class="editor-heading">
+            <div>
+              <h2 id="editorTitle">New script</h2>
+              <div id="registrationState" class="status"></div>
+            </div>
+            <label class="toggle-field">
+              <input id="scriptEnabled" type="checkbox" checked>
+              <span>Enabled</span>
+            </label>
+          </div>
+
+          <div class="field-grid">
+            <label>
+              <span>ID</span>
+              <input id="scriptId" required maxlength="64" pattern="[a-z][a-z0-9._-]{0,63}" placeholder="youtube-cleanup" autocomplete="off">
+            </label>
+            <label>
+              <span>Name</span>
+              <input id="scriptName" required maxlength="128" placeholder="YouTube cleanup" autocomplete="off">
+            </label>
+            <label>
+              <span>Run at</span>
+              <select id="scriptRunAt">
+                <option value="document_start">Document start</option>
+                <option value="document_end">Document end</option>
+                <option value="document_idle" selected>Document idle</option>
+              </select>
+            </label>
+            <label>
+              <span>World</span>
+              <select id="scriptWorld">
+                <option value="USER_SCRIPT" selected>User script</option>
+                <option value="MAIN">Main page</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="full-field">
+            <span>Match patterns</span>
+            <textarea id="scriptMatches" class="matches-editor" required spellcheck="false">https://example.com/*</textarea>
+          </label>
+
+          <label class="full-field code-field">
+            <span>JavaScript</span>
+            <textarea id="scriptCode" required spellcheck="false" aria-label="JavaScript source"></textarea>
+          </label>
+
+          <div class="form-footer">
+            <div id="formMessage" class="form-message" aria-live="polite"></div>
+            <div class="form-actions">
+              <button id="deleteScript" type="button" class="danger hidden">Delete</button>
+              <button type="submit" class="primary">Save script</button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="scripts.js"></script>
+  </body>
+</html>

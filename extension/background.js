@@ -1,5 +1,6 @@
 import { createTabAndWait, navigateTabAndWait } from "./tab-navigation.js";
 import { scheduleDevelopmentUninstall } from "./development-migration.js";
+import { ManagedScriptsManager } from "./managed-scripts.js";
 import {
   captureOptions,
   extractCapturedRequestBody,
@@ -27,9 +28,22 @@ let nativePort = null;
 let reconnectTimer = null;
 let reconnectDelay = 1000;
 let lastNativeError = "";
+let nativeRequestSequence = 0;
 let initialized = false;
 let userScriptsReady = null;
 let privacyConsentVersion = 0;
+let managedScriptsError = "";
+const pendingNativeRequests = new Map();
+
+const managedScripts = new ManagedScriptsManager({
+  storage: chrome.storage.local,
+  userScripts: {
+    getScripts: (...args) => chrome.userScripts.getScripts(...args),
+    register: (...args) => chrome.userScripts.register(...args),
+    update: (...args) => chrome.userScripts.update(...args),
+    unregister: (...args) => chrome.userScripts.unregister(...args)
+  }
+});
 
 const capture = {
   enabled: false,
@@ -51,8 +65,8 @@ chrome.runtime.onInstalled.addListener(details => {
     void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html"), active: true });
   }
 });
-chrome.permissions.onAdded.addListener(() => void sendHello());
-chrome.permissions.onRemoved.addListener(() => void sendHello());
+chrome.permissions.onAdded.addListener(() => void handlePermissionChange());
+chrome.permissions.onRemoved.addListener(() => void handlePermissionChange());
 
 async function init() {
   if (initialized) return;
@@ -66,16 +80,24 @@ async function init() {
   }
   capture.enabled = false;
   capture.includeSecrets = false;
+  await reconcileManagedScriptsForCurrentAccess();
   connectNativeHost();
 }
 
+async function handlePermissionChange() {
+  userScriptsReady = null;
+  await reconcileManagedScriptsForCurrentAccess();
+  await sendHello();
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) {
+  const extensionPage = sender.id === chrome.runtime.id && String(sender.url || "").startsWith(chrome.runtime.getURL(""));
+  if (!extensionPage) {
     sendResponse({ ok: false, error: "Untrusted extension message sender" });
     return false;
   }
   const popup = String(sender.url || "").startsWith(chrome.runtime.getURL("popup.html"));
-  handleCommand(message || {}, { popup, sender })
+  handleCommand(message || {}, { extensionPage, popup, sender })
     .then(result => sendResponse({ ok: true, result }))
     .catch(error => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
@@ -231,6 +253,10 @@ function connectNativeHost() {
   lastNativeError = "";
   port.onMessage.addListener(message => {
     if (port !== nativePort) return;
+    if (message?.type === "host.response") {
+      resolveNativeRequest(message);
+      return;
+    }
     handleCommand(message || {})
       .then(result => reply(message?.id, true, result))
       .catch(error => reply(message?.id, false, null, errorMessage(error)));
@@ -239,6 +265,7 @@ function connectNativeHost() {
     if (port !== nativePort) return;
     lastNativeError = chrome.runtime.lastError?.message || "Native host disconnected";
     nativePort = null;
+    rejectNativeRequests(lastNativeError);
     scheduleReconnect();
   });
 
@@ -272,10 +299,12 @@ async function handleCommand(message, context = {}) {
   const params = message.params || {};
   switch (command) {
     case "ping":
+      if (context.popup === true) await reconcileManagedScriptsForCurrentAccess();
       return {
         pong: true,
         nativeHost: nativeStatus(),
         userScriptsAvailable: await userScriptsAvailable(true),
+        managedScripts: { lastError: managedScriptsError },
         capture: captureState(),
         privacy: privacyState(),
         permissions: await permissionState()
@@ -290,6 +319,7 @@ async function handleCommand(message, context = {}) {
       }
       await storageSet({ privacyConsentVersion: PRIVACY_CONSENT_VERSION });
       privacyConsentVersion = PRIVACY_CONSENT_VERSION;
+      await reconcileManagedScriptsForCurrentAccess();
       await sendHello();
       return { privacy: privacyState(), permissions };
     }
@@ -299,6 +329,7 @@ async function handleCommand(message, context = {}) {
       privacyConsentVersion = 0;
       try {
         await storageSet({ privacyConsentVersion });
+        await reconcileManagedScriptsForCurrentAccess();
       } finally {
         await sendHello();
       }
@@ -362,6 +393,24 @@ async function handleCommand(message, context = {}) {
       return captureVisibleTab(params);
     case "script.execute":
       return executeUserScript(params);
+    case "managedScripts.list":
+      await requireManagedScriptsAvailable();
+      return managedScripts.list();
+    case "managedScripts.get":
+      await requireManagedScriptsAvailable();
+      return managedScripts.get(params.id);
+    case "managedScripts.upsert":
+      await requireManagedScriptsAvailable();
+      return managedScripts.upsert(params);
+    case "managedScripts.enable":
+      await requireManagedScriptsAvailable();
+      return managedScripts.enable(params.id, params.enabled);
+    case "managedScripts.remove":
+      await requireManagedScriptsAvailable();
+      return managedScripts.remove(params.id);
+    case "native.openDataFolder":
+      requireExtensionPage(context);
+      return requestNativeHost("state.openFolder");
     case "cookies.getAll":
       return getCookies(params);
     case "debugger.attach":
@@ -405,6 +454,27 @@ async function userScriptsAvailable(refresh = false) {
     userScriptsReady = false;
   }
   return userScriptsReady;
+}
+
+async function requireManagedScriptsAvailable() {
+  if (!await userScriptsAvailable(true)) {
+    throw new Error("Allow User Scripts is disabled for Chromium Bridge");
+  }
+}
+
+async function reconcileManagedScriptsForCurrentAccess() {
+  const available = await userScriptsAvailable(true);
+  if (!available) return { available: false };
+  try {
+    const permissions = await permissionState();
+    const registerEnabled = privacyState().consented && permissions.siteAccess && permissions.tabs;
+    const result = await managedScripts.reconcile({ registerEnabled });
+    managedScriptsError = "";
+    return { available: true, registerEnabled, ...result };
+  } catch (error) {
+    managedScriptsError = errorMessage(error);
+    return { available: true, error: managedScriptsError };
+  }
 }
 
 async function getCookies(params) {
@@ -622,6 +692,10 @@ function requirePopup(context) {
   if (context.popup !== true) throw new Error("This action requires an explicit click in the extension popup");
 }
 
+function requireExtensionPage(context) {
+  if (context.extensionPage !== true) throw new Error("This action requires an explicit click in Chromium Bridge");
+}
+
 function safeNavigationUrl(value) {
   const url = requiredString(value, "url");
   if (/^(?:javascript|data):/i.test(url.trim())) {
@@ -652,6 +726,40 @@ function emitEvent(type, payload) {
 function reply(id, ok, result, error) {
   if (id == null) return;
   sendNative({ type: "response", id, ok, result, error });
+}
+
+function requestNativeHost(method, params = {}, timeoutMs = 5000) {
+  if (!nativePort) throw new Error(lastNativeError || "Native host is not connected");
+  const id = `browser-${++nativeRequestSequence}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingNativeRequests.delete(id);
+      reject(new Error(`Timed out waiting for native host method ${method}`));
+    }, timeoutMs);
+    pendingNativeRequests.set(id, { resolve, reject, timer });
+    if (!sendNative({ type: "host.request", id, method, params })) {
+      pendingNativeRequests.delete(id);
+      clearTimeout(timer);
+      reject(new Error(lastNativeError || "Failed to contact native host"));
+    }
+  });
+}
+
+function resolveNativeRequest(message) {
+  const pending = pendingNativeRequests.get(message.id);
+  if (!pending) return;
+  pendingNativeRequests.delete(message.id);
+  clearTimeout(pending.timer);
+  if (message.ok) pending.resolve(message.result);
+  else pending.reject(new Error(message.error || "Native host request failed"));
+}
+
+function rejectNativeRequests(message) {
+  for (const [id, pending] of pendingNativeRequests) {
+    pendingNativeRequests.delete(id);
+    clearTimeout(pending.timer);
+    pending.reject(new Error(message));
+  }
 }
 
 function sendNative(message) {

@@ -46,6 +46,7 @@ test("installer dry-run emits stable manifests for common Chromium browsers", as
     "cli.mjs",
     "constants.mjs",
     "native-protocol.mjs",
+    "open-directory.mjs",
     "replay.mjs",
     "host.mjs"
   ]);

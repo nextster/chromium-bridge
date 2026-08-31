@@ -15,6 +15,7 @@ import {
 import { arcProviderInfo, focusArcSpace, listArcSpaces } from "./arc-provider.mjs";
 import { EXTENSION_ORIGIN, NATIVE_HOST_NAME, PRODUCT_VERSION } from "./constants.mjs";
 import { readNativeMessages, writeNativeMessage } from "./native-protocol.mjs";
+import { openDirectory } from "./open-directory.mjs";
 import { renderCurl } from "./replay.mjs";
 
 process.umask(0o077);
@@ -113,11 +114,34 @@ async function consumeNativeInput() {
       if (message.event?.type === "capture.stopped") await writeSnapshot();
       continue;
     }
+    if (message?.type === "host.request") {
+      await handleBrowserRequest(message);
+      continue;
+    }
     if (message?.type === "response" && message.id != null) {
       resolvePending(message);
     }
   }
   await shutdown(0);
+}
+
+async function handleBrowserRequest(message) {
+  const id = message?.id;
+  if (id == null) return;
+  try {
+    let result;
+    switch (String(message.method || "")) {
+      case "state.openFolder":
+        requireBrowserConsent();
+        result = await openDirectory(stateDir);
+        break;
+      default:
+        throw new Error(`Unknown browser-to-host method: ${String(message.method || "<missing>")}`);
+    }
+    await sendNative({ type: "host.response", id, ok: true, result });
+  } catch (error) {
+    await sendNative({ type: "host.response", id, ok: false, error: errorMessage(error) });
+  }
 }
 
 function handleClient(socket) {
@@ -186,6 +210,13 @@ async function handleControlRequest(request) {
     case "curl.render":
       requireBrowserConsent();
       return renderCurl(events);
+    case "managedScripts.list":
+    case "managedScripts.get":
+    case "managedScripts.upsert":
+    case "managedScripts.enable":
+    case "managedScripts.remove":
+      requireBrowserConsent();
+      return sendCommand(method, params);
     case "extension.command": {
       const command = requiredString(params.command, "command");
       if (!CONSENT_FREE_EXTENSION_COMMANDS.has(command)) requireBrowserConsent();

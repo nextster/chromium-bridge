@@ -1,6 +1,6 @@
 # Chromium Bridge Privacy Policy
 
-Effective date: August 14, 2026
+Effective date: August 31, 2026
 
 Chromium Bridge is a user-operated browser automation bridge. This policy describes the extension, Native Messaging host, CLI, and bundled Codex plugin in this repository.
 
@@ -18,6 +18,7 @@ Depending on the command the user runs, Chromium Bridge may handle:
 - Information displayed by websites, which may include identifiers, communications, location, health, financial, or payment information
 - Browser interaction data needed to click, fill, select, wait, navigate, or close a tab
 - Basic extension and host diagnostics, including versions, process identifiers, and connection errors
+- User-requested persistent script records, including names, explicit website match patterns, JavaScript source, execution settings, and enabled state
 
 The extension requires an explicit approval in its popup before browser data is available. Cookie access is optional. Chromium requires the DevTools `debugger` permission at install time, but Chromium Bridge does not use it until popup approval and an explicit local debugging command. Raw secrets are excluded from normal cookie output and capture unless the user explicitly enables a raw mode.
 
@@ -39,7 +40,11 @@ Chromium Bridge does not sell user data or transfer it to advertising platforms,
 
 ## Local storage and retention
 
-The extension stores only consent state and capture preferences in `chrome.storage.local`. Active capture is disabled whenever the extension service worker starts, and raw-secret mode is never persisted.
+The extension stores consent state, capture preferences, and a versioned collection of user-requested Bridge-managed persistent scripts in `chrome.storage.local`. A managed script record includes its JavaScript source, explicit `http://` or `https://` match patterns, execution settings, and enabled state. Active capture is disabled whenever the extension service worker starts, and raw-secret mode is never persisted.
+
+Enabled managed scripts remain active across browser restarts. Revoking Chromium Bridge browser access unregisters Bridge-managed scripts without deleting their stored records; granting access again restores enabled records. Disabling retains a record while unregistering it, and removing deletes both the record and its Bridge-owned registration. Chromium Bridge does not read or modify Arc Boost storage or scripts owned by other extensions.
+
+The managed scripts screen can ask the Native Messaging host to reveal Chromium Bridge's fixed local state directory in the operating system file manager. It cannot pass an arbitrary path, and script source remains stored in `chrome.storage.local`, not in that directory.
 
 When capture is started, the native host writes owner-only files under `~/.chromium-bridge/captures`. The append-only event log is capped at 256 MiB per host session by default, and the latest-event snapshot and in-memory retention are separately bounded. Capture files remain until the user deletes them.
 
@@ -67,6 +72,7 @@ Users can:
 - Require a narrow URL filter for capture or explicitly opt into all-URL capture
 - Stop capture at any time
 - Purge locally stored captures
+- List, inspect, disable, or remove Bridge-managed persistent scripts through the local CLI or connected tools
 - Remove the extension, native host, or Codex plugin
 
 ## Changes and contact

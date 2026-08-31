@@ -32,7 +32,19 @@ test("native host bridges CLI commands and records replayable events", { timeout
       control(socketPath, "extension.command", { command: "tabs.list", params: {} }),
       /has not been approved/
     );
+    await assert.rejects(control(socketPath, "managedScripts.list"), /has not been approved/);
     await assert.rejects(control(socketPath, "arc.spaces.list"), /has not been approved/);
+    child.stdin.write(encodeNativeMessage({
+      type: "host.request",
+      id: "open-folder-without-consent",
+      method: "state.openFolder",
+      params: { path: "/tmp/must-not-be-used" }
+    }));
+    const rejectedFolderRequest = await nativeMessages.next();
+    assert.equal(rejectedFolderRequest.value.type, "host.response");
+    assert.equal(rejectedFolderRequest.value.id, "open-folder-without-consent");
+    assert.equal(rejectedFolderRequest.value.ok, false);
+    assert.match(rejectedFolderRequest.value.error, /has not been approved/);
     child.stdin.write(encodeNativeMessage({
       type: "hello",
       extension: { id: "test-extension", name: "Chromium Bridge", version: "test" },
@@ -61,6 +73,20 @@ test("native host bridges CLI commands and records replayable events", { timeout
     }));
     const status = await statusPromise;
     assert.equal(status.extension.pong, true);
+
+    const managedCliPromise = execFileAsync(process.execPath, [cliPath, "managed-script-list"], { env });
+    const managedCommand = await nativeMessages.next();
+    assert.equal(managedCommand.done, false);
+    assert.equal(managedCommand.value.command, "managedScripts.list");
+    assert.deepEqual(managedCommand.value.params, {});
+    child.stdin.write(encodeNativeMessage({
+      type: "response",
+      id: managedCommand.value.id,
+      ok: true,
+      result: [{ id: "youtube-cleanup", enabled: true }]
+    }));
+    const managedCli = await managedCliPromise;
+    assert.match(managedCli.stdout, /youtube-cleanup/);
 
     const before = {
       type: "event",

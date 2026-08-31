@@ -9,6 +9,7 @@ The portable extension core handles tabs, compact page snapshots, interactions, 
 - Browser data is unavailable until the user approves website access in the extension popup.
 - Website, tab, and cookie access remain unavailable until the user grants the optional permissions. Chromium requires the DevTools `debugger` permission at install time, but the extension's consent gate still blocks its use until local browser access is approved.
 - Network capture requires a URL substring or an explicit all-URLs opt-in. Secret fields are redacted by default, and capture events and files are size-limited.
+- Persistent scripts are stored locally, limited to explicit `http://` and `https://` match patterns, and registered only under Chromium Bridge's private script namespace. Revoking browser consent unregisters them without deleting their records.
 - The extension makes no requests to a developer-operated server. It sends requested data to the user-installed local host through Chromium Native Messaging.
 - Local clients, including AI tools, decide how tool output is processed and may use third-party services. Review their privacy settings before exposing sensitive pages.
 - Native Messaging origins are allowlisted, the host verifies the caller origin, and local sockets and captures are owner-only.
@@ -135,6 +136,7 @@ The Codex MCP server provides:
 - Tab listing, background tab creation, navigation, and guarded cleanup
 - Compact DOM snapshots with stable temporary refs
 - Click, fill, select, wait, and user-supplied JavaScript execution
+- Bridge-managed persistent JavaScript with list, inspect, upsert, enable/disable, removal, and restart reconciliation
 - Viewport screenshots
 - Optional redacted cookie access and filtered network capture
 - Replayable, shell-safe `curl` generation
@@ -150,6 +152,9 @@ The installer places the CLI at `~/.chromium-bridge/bin/chromium-bridge`:
 ~/.chromium-bridge/bin/chromium-bridge status
 ~/.chromium-bridge/bin/chromium-bridge tabs
 ~/.chromium-bridge/bin/chromium-bridge eval active 'document.title'
+~/.chromium-bridge/bin/chromium-bridge managed-script-list
+~/.chromium-bridge/bin/chromium-bridge managed-script-get youtube-cleanup
+~/.chromium-bridge/bin/chromium-bridge managed-script-enable youtube-cleanup false
 ~/.chromium-bridge/bin/chromium-bridge capture-start --filter example.com --body
 ~/.chromium-bridge/bin/chromium-bridge capture-stop
 ~/.chromium-bridge/bin/chromium-bridge curl
@@ -157,6 +162,30 @@ The installer places the CLI at `~/.chromium-bridge/bin/chromium-bridge`:
 ```
 
 Captures use owner-only files under `~/.chromium-bridge/captures`. `purge` deletes all prior capture sessions and clears the active log.
+
+### Bridge-managed scripts
+
+Persistent scripts use `chrome.userScripts.register`, `update`, and `unregister`. Their canonical versioned records live in `chrome.storage.local`; startup reconciliation restores enabled registrations, removes stale registrations only from the `chromium-bridge-managed:` namespace, and leaves Arc Boosts and scripts owned by other extensions untouched.
+
+Open the extension popup and choose **Manage persistent scripts** to list, search, enable, disable, add, edit, or remove Bridge-managed scripts. The manager can also reveal the fixed Chromium Bridge state directory. Script source remains canonical in browser-local extension storage and is edited through the manager, MCP tools, or CLI; the state directory is not a writable script source directory.
+
+Each script has a Bridge-local id, name, explicit match patterns, JavaScript source, enabled state, `runAt`, and execution `world`. Source is limited to 256 KiB per script, the collection is bounded, `<all_urls>` is forbidden, and only `http://` or `https://` match patterns are accepted. Prefer the isolated `USER_SCRIPT` world; use `MAIN` only when the script must share JavaScript state with the page.
+
+Example CLI upsert:
+
+```bash
+~/.chromium-bridge/bin/chromium-bridge managed-script-upsert '{
+  "id": "youtube-cleanup",
+  "name": "YouTube cleanup",
+  "matches": ["https://www.youtube.com/*"],
+  "js": "document.documentElement.dataset.chromiumBridge = \"enabled\";",
+  "enabled": true,
+  "runAt": "document_idle",
+  "world": "USER_SCRIPT"
+}'
+```
+
+Disabling a script retains its canonical record but unregisters it. Removing a script deletes both its record and its Bridge-owned registration. Revoking Chromium Bridge browser consent unregisters all Bridge-managed scripts while preserving their records for restoration after consent is granted again.
 
 ## Architecture
 

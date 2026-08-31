@@ -111,7 +111,7 @@ function validatePngDimensions(filePath, bytes, width, height) {
 }
 
 async function validatePackageFiles(root) {
-  const files = await listFiles(root);
+  const files = (await listFiles(root)).filter(file => !/\.test\.(?:js|mjs)$/i.test(file));
   const forbidden = files.filter(file => /(?:^|\/)(?:\.DS_Store|node_modules|test|store|dist)(?:\/|$)|\.(?:pem|key|log|map)$/i.test(file));
   if (forbidden.length) throw new Error(`Forbidden extension package files: ${forbidden.join(", ")}`);
   for (const file of files.filter(file => /\.(?:js|html|json|css)$/i.test(file))) {

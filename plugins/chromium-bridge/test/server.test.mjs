@@ -17,6 +17,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   let connections = 0;
   let nextTabId = 90;
   const extensionCommands = [];
+  const managedRequests = [];
   const controlServer = net.createServer(socket => {
     connections += 1;
     socket.setEncoding("utf8");
@@ -36,6 +37,12 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
           result = { running: true, windows: [{ id: 1, spaces: [{ id: "space-1", title: "Work", tabs: [] }] }] };
         } else if (request.method === "arc.space.focus") {
           result = { focused: true, spaceId: request.params.spaceId };
+        } else if (request.method?.startsWith("managedScripts.")) {
+          managedRequests.push({ method: request.method, params: request.params || {} });
+          if (request.method === "managedScripts.list") result = [{ id: "youtube-cleanup", enabled: true }];
+          else if (request.method === "managedScripts.get") result = { id: request.params.id, js: "document.title;" };
+          else if (request.method === "managedScripts.remove") result = { id: request.params.id, removed: true };
+          else result = { script: { id: request.params.id, enabled: request.params.enabled ?? true } };
         } else if (request.params?.command === "tabs.active") {
           result = {
             id: 42,
@@ -147,7 +154,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   await waitUntil(() => responses.length === 5);
   const response = id => responses.find(item => item.id === id);
   assert.equal(response(1).result.serverInfo.name, "chromium-bridge");
-  assert.equal(response(1).result.serverInfo.version, "0.6.5");
+  assert.equal(response(1).result.serverInfo.version, "0.6.6");
   assert.ok(response(2).result.tools.some(tool => tool.name === "snapshot"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "browser_flow"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "scroll"));
@@ -156,12 +163,34 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   assert.ok(response(2).result.tools.some(tool => tool.name === "reload_extension"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "arc_list_spaces"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "purge_captures"));
+  for (const name of ["managed_script_list", "managed_script_get", "managed_script_upsert", "managed_script_enable", "managed_script_remove"]) {
+    assert.ok(response(2).result.tools.some(tool => tool.name === name));
+  }
   for (const name of ["click", "fill", "select", "browser_flow"]) {
     const browserAction = response(2).result.tools.find(tool => tool.name === name);
     assert.equal(browserAction.annotations.destructiveHint, false);
   }
   const closeTab = response(2).result.tools.find(tool => tool.name === "close_tab");
   assert.equal(closeTab.annotations.destructiveHint, true);
+  for (const name of ["managed_script_list", "managed_script_get"]) {
+    const managedRead = response(2).result.tools.find(tool => tool.name === name);
+    assert.equal(managedRead.annotations.readOnlyHint, true);
+    assert.equal(managedRead.annotations.destructiveHint, false);
+  }
+  for (const name of ["managed_script_upsert", "managed_script_enable"]) {
+    const managedWrite = response(2).result.tools.find(tool => tool.name === name);
+    assert.equal(managedWrite.annotations.readOnlyHint, false);
+    assert.equal(managedWrite.annotations.destructiveHint, false);
+    assert.equal(managedWrite.annotations.idempotentHint, true);
+  }
+  const managedRemove = response(2).result.tools.find(tool => tool.name === "managed_script_remove");
+  assert.equal(managedRemove.annotations.destructiveHint, true);
+  assert.equal(managedRemove.annotations.idempotentHint, true);
+  const managedUpsert = response(2).result.tools.find(tool => tool.name === "managed_script_upsert");
+  assert.deepEqual(managedUpsert.inputSchema.properties.world.enum, ["USER_SCRIPT", "MAIN"]);
+  assert.deepEqual(managedUpsert.inputSchema.properties.runAt.enum, ["document_start", "document_end", "document_idle"]);
+  assert.equal(managedUpsert.inputSchema.properties.js.maxLength, 262144);
+  assert.deepEqual(managedUpsert.inputSchema.required, ["id", "name", "matches", "js", "enabled", "runAt", "world"]);
   assert.match(response(3).result.content[0].text, /"pong":true/);
   assert.doesNotMatch(response(4).result.content[0].text, /favIconUrl/);
   assert.match(response(5).result.content[0].text, /e1 role=button tag=button name="Go"/);
@@ -234,6 +263,34 @@ test("MCP server exposes Chromium and provider tools over the control socket", a
   assert.equal(flow.completed, true);
   assert.equal(flow.tabId, 42);
   assert.deepEqual(flow.steps.map(step => step.action), ["snapshot", "scroll", "fill", "click"]);
+
+  writeToolCall(child, 16, "managed_script_list", {});
+  writeToolCall(child, 17, "managed_script_get", { id: "youtube-cleanup" });
+  writeToolCall(child, 18, "managed_script_upsert", {
+    id: "youtube-cleanup",
+    name: "YouTube cleanup",
+    matches: ["https://www.youtube.com/*"],
+    js: "document.title;",
+    enabled: true,
+    runAt: "document_idle",
+    world: "USER_SCRIPT"
+  });
+  writeToolCall(child, 19, "managed_script_enable", { id: "youtube-cleanup", enabled: false });
+  writeToolCall(child, 20, "managed_script_remove", { id: "youtube-cleanup" });
+  await waitUntil(() => responses.length === 20);
+  assert.match(response(16).result.content[0].text, /youtube-cleanup/);
+  assert.match(response(17).result.content[0].text, /document\.title/);
+  assert.equal(response(18).result.isError, undefined);
+  assert.equal(response(19).result.isError, undefined);
+  assert.equal(response(20).result.isError, undefined);
+  assert.deepEqual(managedRequests.map(item => item.method), [
+    "managedScripts.list",
+    "managedScripts.get",
+    "managedScripts.upsert",
+    "managedScripts.enable",
+    "managedScripts.remove"
+  ]);
+  assert.deepEqual(managedRequests[3].params, { id: "youtube-cleanup", enabled: false });
 });
 
 function writeToolCall(child, id, name, args) {

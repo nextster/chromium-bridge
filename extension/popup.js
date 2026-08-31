@@ -29,6 +29,13 @@ $("revokeAccess").addEventListener("click", () => run(async () => {
 }));
 
 $("grantCookies").addEventListener("click", () => grantPermission("cookies"));
+$("manageScripts").addEventListener("click", () => run(async () => {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL("scripts.html"),
+    active: true
+  });
+  window.close();
+}));
 $("openScriptSettings").addEventListener("click", () => run(async () => {
   await chrome.tabs.create({
     url: `chrome://extensions/?id=${chrome.runtime.id}`,

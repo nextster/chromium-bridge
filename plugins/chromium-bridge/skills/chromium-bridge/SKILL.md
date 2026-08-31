@@ -68,6 +68,16 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 - Always call `capture_stop` before finishing a task that started capture, even after an error.
 - Prefer snapshot and ref tools. Use one read-only `evaluate` call when a known DOM or API expression can answer the question more directly; do not use it to bypass confirmation for consequential actions.
 
+## Bridge-Managed Persistent Scripts
+
+- Use `managed_script_*` tools instead of `evaluate` when the user explicitly wants JavaScript to persist across browser and Bridge restarts.
+- Treat create, update, enable, disable, and removal as lasting browser changes. Inspect an existing record with `managed_script_get` before replacing it, and do not mutate persistent scripts without an explicit user request covering the intended behavior and sites.
+- Prefer `world: "USER_SCRIPT"`. Use `MAIN` only when the requested behavior requires sharing JavaScript state with the page, and explain that broader page-level trust boundary.
+- Use narrow, explicit `http://` or `https://` match patterns. `<all_urls>`, `file://`, browser-internal pages, and privileged schemes are unsupported and must not be worked around.
+- `managed_script_list` intentionally omits source; use `managed_script_get` for the exact code. Disabling preserves the record but unregisters it. Removing deletes both the record and its Bridge-owned registration.
+- These tools manage only Chromium Bridge's own namespace. Never represent them as editing, importing, disabling, or replacing Arc Boosts, Tampermonkey scripts, or scripts owned by another extension.
+- Do not persist credentials, session tokens, captured secrets, or code whose purpose is to bypass a site's security controls.
+
 ## Network Investigation
 
 1. Start a redacted capture with a narrow `urlPattern`.

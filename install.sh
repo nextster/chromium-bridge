@@ -2,7 +2,7 @@
 set -eu
 
 repository="${CHROMIUM_BRIDGE_REPOSITORY:-nextster/chromium-bridge}"
-ref="${CHROMIUM_BRIDGE_REF:-v0.6.5}"
+ref="${CHROMIUM_BRIDGE_REF:-v0.6.6}"
 source_dir="${CHROMIUM_BRIDGE_SOURCE_DIR:-}"
 state_dir="${CHROMIUM_BRIDGE_STATE_DIR:-$HOME/.chromium-bridge}"
 node_version="24.19.0"

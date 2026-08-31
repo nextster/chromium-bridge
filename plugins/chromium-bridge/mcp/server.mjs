@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.6.5";
+const SERVER_VERSION = "0.6.6";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_BRIDGE_SOCKET ||
@@ -25,6 +25,18 @@ const browserMutation = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
+  openWorldHint: true
+};
+const managedMutation = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true
+};
+const managedRemoval = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
   openWorldHint: true
 };
 const consequential = {
@@ -105,6 +117,46 @@ const tools = [
       description: "Execution world. Defaults to USER_SCRIPT."
     }
   }, consequential, ["code"]),
+  tool("managed_script_list", "List Bridge-managed persistent scripts without returning their JavaScript source.", {}, readOnly),
+  tool("managed_script_get", "Get one Bridge-managed persistent script, including its JavaScript source.", {
+    id: managedScriptIdProperty()
+  }, readOnly, ["id"]),
+  tool("managed_script_upsert", "Create or idempotently update a persistent Bridge-managed script. Only explicit http/https match patterns are accepted.", {
+    id: managedScriptIdProperty(),
+    name: { type: "string", minLength: 1, maxLength: 128, description: "Human-readable script name." },
+    matches: {
+      type: "array",
+      minItems: 1,
+      maxItems: 100,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: 2048 },
+      description: "Explicit http:// or https:// match patterns. <all_urls> and privileged schemes are rejected."
+    },
+    js: {
+      type: "string",
+      minLength: 1,
+      maxLength: 262144,
+      description: "Persistent JavaScript source, limited to 256 KiB."
+    },
+    enabled: booleanProperty("Whether the script should be registered and active."),
+    runAt: {
+      type: "string",
+      enum: ["document_start", "document_end", "document_idle"],
+      description: "When Chromium injects the script."
+    },
+    world: {
+      type: "string",
+      enum: ["USER_SCRIPT", "MAIN"],
+      description: "Execution world. Prefer USER_SCRIPT unless page-JavaScript access is required."
+    }
+  }, managedMutation, ["id", "name", "matches", "js", "enabled", "runAt", "world"]),
+  tool("managed_script_enable", "Enable or disable a stored Bridge-managed script without deleting its canonical record.", {
+    id: managedScriptIdProperty(),
+    enabled: booleanProperty("True registers the script; false unregisters it while retaining its stored record.")
+  }, managedMutation, ["id", "enabled"]),
+  tool("managed_script_remove", "Permanently remove a Bridge-managed script from registration and local extension storage.", {
+    id: managedScriptIdProperty()
+  }, managedRemoval, ["id"]),
   tool("wait_for", "Wait until text or a CSS selector is visible or hidden.", {
     text: stringProperty("Text to find in visible page text."),
     selector: stringProperty("CSS selector to inspect."),
@@ -309,6 +361,31 @@ async function callTool(name, args) {
         args.world === "MAIN" ? "MAIN" : "USER_SCRIPT"
       ));
     }
+    case "managed_script_list":
+      return textResult(await request("managedScripts.list"));
+    case "managed_script_get":
+      return textResult(await request("managedScripts.get", {
+        id: requiredString(args.id, "id")
+      }));
+    case "managed_script_upsert":
+      return textResult(await request("managedScripts.upsert", {
+        id: requiredString(args.id, "id"),
+        name: requiredString(args.name, "name"),
+        matches: args.matches,
+        js: requiredString(args.js, "js"),
+        enabled: requiredPresent(args.enabled, "enabled"),
+        runAt: requiredString(args.runAt, "runAt"),
+        world: requiredString(args.world, "world")
+      }));
+    case "managed_script_enable":
+      return textResult(await request("managedScripts.enable", {
+        id: requiredString(args.id, "id"),
+        enabled: requiredPresent(args.enabled, "enabled")
+      }));
+    case "managed_script_remove":
+      return textResult(await request("managedScripts.remove", {
+        id: requiredString(args.id, "id")
+      }));
     case "wait_for": {
       const result = await waitFor(args);
       return result.snapshot
@@ -1024,6 +1101,14 @@ function tool(name, description, properties, annotations, required = []) {
 
 function stringProperty(description) {
   return { type: "string", description };
+}
+
+function managedScriptIdProperty() {
+  return {
+    type: "string",
+    pattern: "^[a-z][a-z0-9._-]{0,63}$",
+    description: "Bridge-local script id. Namespaced registration ids and ids from other script systems are rejected."
+  };
 }
 
 function booleanProperty(description) {

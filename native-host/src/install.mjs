@@ -48,6 +48,7 @@ const runtimeFiles = [
   "cli.mjs",
   "constants.mjs",
   "native-protocol.mjs",
+  "open-directory.mjs",
   "replay.mjs",
   "host.mjs"
 ];

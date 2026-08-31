@@ -8,7 +8,7 @@ Connects the extension to the user-installed Chromium Bridge companion on the sa
 
 ## `storage`
 
-Stores the user's consent version and non-secret capture preferences. Capture is always disabled at startup, and raw-secret mode is never persisted.
+Stores the user's consent version, non-secret capture preferences, and versioned Bridge-managed persistent-script records. Script source, explicit website match patterns, execution settings, and enabled state stay local to the browser profile. Capture is always disabled at startup, and raw-secret mode is never persisted.
 
 ## Optional `tabs`
 
@@ -16,7 +16,7 @@ Lists and operates browser tabs selected by the user or local tool, including ba
 
 ## `userScripts`
 
-Executes JavaScript supplied by a local tool at the user's request for page inspection and interaction. Users must separately enable Chromium's Allow User Scripts setting. The extension does not fetch scripts from a developer server.
+Executes JavaScript supplied by a local tool at the user's request for page inspection and interaction, and registers user-requested persistent scripts for explicit `http://` or `https://` match patterns. Persistent source and enabled state are stored locally, size-limited, and reconciled only within Chromium Bridge's own registration namespace. Users must separately enable Chromium's Allow User Scripts setting. The extension does not fetch scripts from a developer server.
 
 ## `webRequest`
 
@@ -36,7 +36,7 @@ Chromium does not permit `debugger` in `optional_permissions`, so it must be dec
 
 ## Remote code declaration
 
-Select **Yes**. Chromium Bridge accepts user-supplied JavaScript from the user-installed local companion and executes it through `chrome.userScripts`. This is the extension's disclosed developer-tool purpose. The extension does not download executable JavaScript or WebAssembly from developer-controlled servers, and no third-party library is loaded at runtime.
+Select **Yes**. Chromium Bridge accepts user-supplied JavaScript from the user-installed local companion and executes or persistently registers it through `chrome.userScripts`. This is the extension's disclosed developer-tool purpose. The extension does not download executable JavaScript or WebAssembly from developer-controlled servers, and no third-party library is loaded at runtime.
 
 ## Data-use disclosures
 
