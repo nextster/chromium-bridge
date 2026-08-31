@@ -13,11 +13,12 @@ const packageJson = JSON.parse(await readFile(path.join(projectDir, "package.jso
 const outputDir = path.join(projectDir, "dist");
 const outputPath = path.join(outputDir, `chromium-bridge-${packageJson.version}.tar.gz`);
 const sourceRef = process.env.CHROMIUM_BRIDGE_SOURCE_REF || "HEAD";
+const archiveRef = `${sourceRef}^{tree}`;
 const { stdout: archive } = await execFileAsync("git", [
   "archive",
   "--format=tar",
   `--prefix=chromium-bridge-${packageJson.version}/`,
-  sourceRef,
+  archiveRef,
   "--",
   ".",
   ":(exclude)Formula",
