@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.6.7";
+const SERVER_VERSION = "0.6.8";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_BRIDGE_SOCKET ||
@@ -54,9 +54,9 @@ const tools = [
   tool("arc_focus_space", "Focus an Arc Space. This changes the user's visible browser context, so use it only when explicitly requested.", {
     spaceId: stringProperty("Arc Space id returned by arc_list_spaces.")
   }, consequential, ["spaceId"]),
-  tool("list_tabs", "List tabs in the connected Chromium browser.", {}, readOnly),
+  tool("list_tabs", "List Chromium tabs, including active and pinned state. Before opening a known site, reuse a matching inactive tab when practical and prefer a pinned match.", {}, readOnly),
   tool("active_tab", "Return compact metadata for the active browser tab. Skip this when snapshot is needed because snapshot already includes it.", {}, readOnly),
-  tool("new_tab", "Open an agent-owned browser tab in the background by default. Set active=true only when the user explicitly asked to see it.", {
+  tool("new_tab", "Open an agent-owned browser tab in the background by default. First reuse a matching inactive tab from list_tabs when practical; set active=true only when the user explicitly asked to see it.", {
     url: stringProperty("URL to open. Omit for a blank tab."),
     active: booleanProperty("Whether the new tab becomes active. Defaults to false.")
   }, browserMutation),
@@ -254,7 +254,7 @@ async function handleLine(line) {
           protocolVersion: message.params?.protocolVersion || DEFAULT_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-          instructions: "Use Chromium Bridge for webpage interaction. Open new tabs in the background unless the user explicitly asks to see them, reuse explicit tabIds, and close agent-created tabs when done. Start routine work with snapshot; skip status and active_tab unless diagnosing or requesting metadata only."
+          instructions: "Use Chromium Bridge for webpage interaction. Before opening a known site, reuse a matching inactive tab and prefer a pinned match; never take over the user's active tab. Open new tabs in the background unless explicitly asked otherwise, reuse explicit tabIds, and close only agent-created tabs when done. Start routine work with snapshot; skip status and active_tab unless diagnosing or requesting metadata only."
         });
         return;
       case "notifications/initialized":

@@ -61,7 +61,7 @@ else console.log(JSON.stringify({ ok: true }));
         ...process.env,
         HOME: home,
         CODEX_TEST_LOG: logPath,
-        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.7"),
+        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.8"),
         PATH: `${binDir}:${process.env.PATH}`
       }
     });
@@ -93,8 +93,8 @@ else console.log(JSON.stringify({ ok: true }));
     assert.ok(calls.some(args => args.join(" ") === "plugin remove chromium-sidecar@chromium-sidecar --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin marketplace remove chromium-sidecar --json"));
     assert.equal(
-      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.7")),
-      path.join("chromium-bridge", "0.6.7")
+      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.8")),
+      path.join("chromium-bridge", "0.6.8")
     );
 
     const retainedCapture = path.join(home, ".chromium-bridge", "captures", "kept.txt");
@@ -117,7 +117,7 @@ else console.log(JSON.stringify({ ok: true }));
     const uninstallCalls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@chromium-bridge --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
-    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.7")));
+    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.8")));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

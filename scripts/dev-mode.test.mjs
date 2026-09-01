@@ -6,7 +6,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFi
 import { developmentStatus, linkDevelopment, unlinkDevelopment } from "./dev-mode.mjs";
 
 test("dev link is idempotent and unlink restores bundled runtime", async () => {
-  const fixture = await makeFixture("0.6.7", "0.6.7");
+  const fixture = await makeFixture("0.6.8", "0.6.8");
   try {
     const first = await linkDevelopment(fixture.options);
     assert.equal(first.mode, "checkout");
@@ -32,10 +32,10 @@ test("dev link is idempotent and unlink restores bundled runtime", async () => {
 });
 
 test("dev status reports stale versions and invalid moved checkout", async () => {
-  const fixture = await makeFixture("0.6.7", "0.6.6");
+  const fixture = await makeFixture("0.6.8", "0.6.7");
   try {
     let status = await developmentStatus(fixture.options);
-    assert.match(status.mismatches.join("\n"), /installed plugin 0\.6\.6 differs from repo 0\.6\.7/);
+    assert.match(status.mismatches.join("\n"), /installed plugin 0\.6\.7 differs from repo 0\.6\.8/);
 
     await linkDevelopment(fixture.options);
     const moved = `${fixture.projectDir}-moved`;
@@ -53,7 +53,7 @@ test("dev status reports stale versions and invalid moved checkout", async () =>
 });
 
 test("dev unlink refuses a symlink instead of deleting an arbitrary target", async () => {
-  const fixture = await makeFixture("0.6.7", "0.6.7");
+  const fixture = await makeFixture("0.6.8", "0.6.8");
   const target = path.join(fixture.root, "keep.json");
   try {
     await writeFile(target, "keep\n");

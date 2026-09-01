@@ -43,6 +43,8 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 ## Tab Lifecycle
 
 - Work in the user's current tab only when the request clearly refers to that page.
+- Before opening a tab for a known site, call `list_tabs` once and reuse a matching inactive tab when practical. Match by the target origin or hostname and prefer `pinned: true`; do not take over the active tab the user is working in.
+- Do not reuse a tab with apparent unsaved input or another in-progress workflow. Do not navigate an existing user tab away from unrelated content merely to avoid creating a tab.
 - When a new tab is useful, call `new_tab` without `active` or with `active: false`. Set `active: true` only when the user explicitly asks to open or show a page in the foreground.
 - Keep the returned `tabId` and operate on that background tab explicitly. Do not rely on whichever tab the user currently has active.
 - Close an agent-created tab as soon as it is no longer useful. Before finishing, call `close_agent_tabs` if any agent-created tabs remain.
@@ -54,6 +56,7 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 - Call `providers` only when browser-specific capabilities are relevant.
 - Arc adds `arc_list_spaces` and `arc_focus_space` through its macOS scripting provider.
 - `arc_list_spaces` is read-only. `arc_focus_space` changes the user's visible context and must be used only when the user explicitly asks for that focus change.
+- Arc Favorites and tabs in hidden Spaces may lack a normal numeric Chromium `tabId`. Do not focus a Space merely to reuse one; open a background Chromium tab when no reusable numeric tab is available.
 - Normal tabs and page operations use Chromium extension APIs and are not Arc-specific.
 
 ## Safety

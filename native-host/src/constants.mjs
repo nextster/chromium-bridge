@@ -6,4 +6,4 @@ export const OBSOLETE_NATIVE_HOST_NAMES = [
 export const EXTENSION_ID = "eiffkmiekomnbpgamfchhehdafpnfgco";
 export const EXTENSION_ORIGIN = `chrome-extension://${EXTENSION_ID}/`;
 export const PRODUCT_NAME = "Chromium Bridge";
-export const PRODUCT_VERSION = "0.6.7";
+export const PRODUCT_VERSION = "0.6.8";
