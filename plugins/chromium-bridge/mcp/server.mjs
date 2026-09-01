@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.6.8";
+const SERVER_VERSION = "0.6.9";
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const socketPath = path.resolve(
   process.env.CHROMIUM_BRIDGE_SOCKET ||
