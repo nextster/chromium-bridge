@@ -1,7 +1,7 @@
 {
-  "name": "chromium-bridge",
+  "name": "nextster",
   "interface": {
-    "displayName": "Chromium Bridge"
+    "displayName": "Nextster"
   },
   "plugins": [
     {

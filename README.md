@@ -36,11 +36,11 @@ The installer:
 
 1. Uses an existing Node.js 20+ runtime, or installs a pinned and SHA-256-verified Node.js runtime under `~/.chromium-bridge`.
 2. Installs the Native Messaging host and CLI for supported Chromium browsers.
-3. Copies the Codex marketplace to a persistent location and registers the Chromium Bridge plugin.
+3. Adds Chromium Bridge to the shared Nextster marketplace under `~/.codex/marketplaces/nextster` and registers `chromium-bridge@nextster`.
 4. Opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
 5. Reports readiness after the browser bridge answers a live status check.
 
-No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. Restart Codex after first installation so it loads the plugin.
+No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. Start a new Codex task after first installation so it loads the plugin; restarting the app is not required.
 
 To inspect the installer before running it:
 

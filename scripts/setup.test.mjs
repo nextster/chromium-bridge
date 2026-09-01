@@ -25,7 +25,7 @@ const args = process.argv.slice(2);
 appendFileSync(process.env.CODEX_TEST_LOG, JSON.stringify(args) + "\\n");
 if (args.join(" ") === "plugin marketplace list --json") console.log(JSON.stringify({ marketplaces: [] }));
 else if (args.join(" ") === "plugin list --json") console.log(JSON.stringify({ installed: [] }));
-else if (args.join(" ") === "plugin add chromium-bridge@chromium-bridge --json") console.log(JSON.stringify({
+else if (args.join(" ") === "plugin add chromium-bridge@nextster --json") console.log(JSON.stringify({
   installedPath: process.env.CODEX_TEST_INSTALLED_PATH
 }));
 else console.log(JSON.stringify({ ok: true }));
@@ -51,6 +51,16 @@ else console.log(JSON.stringify({ ok: true }));
     await writeFile(legacyCli, "old");
     await writeFile(legacyManifest, "{}");
     await writeFile(path.join(home, ".chromium-sidecar", "dev-link.json"), "{}", { mode: 0o600 });
+    const marketplaceRoot = path.join(home, ".codex", "marketplaces", "nextster");
+    const telegramPlugin = path.join(marketplaceRoot, "plugins", "telegram-bridge");
+    await mkdir(path.join(marketplaceRoot, ".agents", "plugins"), { recursive: true });
+    await mkdir(telegramPlugin, { recursive: true });
+    await writeFile(path.join(telegramPlugin, "marker.txt"), "keep");
+    await writeFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), JSON.stringify({
+      name: "nextster",
+      interface: { displayName: "Nextster" },
+      plugins: [{ name: "telegram-bridge", source: { source: "local", path: "./plugins/telegram-bridge" } }]
+    }));
     const { stdout } = await execFileAsync(process.execPath, [
       path.join(projectDir, "scripts", "setup.mjs"),
       "--host-only",
@@ -60,13 +70,13 @@ else console.log(JSON.stringify({ ok: true }));
       env: {
         ...process.env,
         HOME: home,
+        CODEX_HOME: path.join(home, ".codex"),
         CODEX_TEST_LOG: logPath,
-        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "chromium-bridge", "0.6.8"),
+        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "nextster", "chromium-bridge", "0.6.8"),
         PATH: `${binDir}:${process.env.PATH}`
       }
     });
     const result = JSON.parse(stdout);
-    const marketplaceRoot = path.join(home, ".chromium-bridge", "codex-marketplace");
     assert.equal(result.migration.migrated, true);
     assert.equal(result.migration.moved, true);
     assert.equal(result.developmentLinkReset, true);
@@ -78,7 +88,9 @@ else console.log(JSON.stringify({ ok: true }));
     const marketplace = JSON.parse(
       await readFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), "utf8")
     );
-    assert.equal(marketplace.name, "chromium-bridge");
+    assert.equal(marketplace.name, "nextster");
+    assert.deepEqual(marketplace.plugins.map(item => item.name), ["telegram-bridge", "chromium-bridge"]);
+    assert.equal(await readFile(path.join(telegramPlugin, "marker.txt"), "utf8"), "keep");
     const mcp = JSON.parse(
       await readFile(path.join(marketplaceRoot, "plugins", "chromium-bridge", ".mcp.json"), "utf8")
     );
@@ -89,14 +101,10 @@ else console.log(JSON.stringify({ ok: true }));
     ]);
     const calls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(calls.some(args => args.join(" ") === `plugin marketplace add ${marketplaceRoot} --json`));
-    assert.ok(calls.some(args => args.join(" ") === "plugin add chromium-bridge@chromium-bridge --json"));
+    assert.ok(calls.some(args => args.join(" ") === "plugin add chromium-bridge@nextster --json"));
+    assert.ok(calls.some(args => args.join(" ") === "plugin remove chromium-bridge@chromium-bridge --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin remove chromium-sidecar@chromium-sidecar --json"));
     assert.ok(calls.some(args => args.join(" ") === "plugin marketplace remove chromium-sidecar --json"));
-    assert.equal(
-      await readlink(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.8")),
-      path.join("chromium-bridge", "0.6.8")
-    );
-
     const retainedCapture = path.join(home, ".chromium-bridge", "captures", "kept.txt");
     assert.equal(await readFile(retainedCapture, "utf8"), "keep");
     const uninstall = JSON.parse((await execFileAsync(process.execPath, [
@@ -106,6 +114,7 @@ else console.log(JSON.stringify({ ok: true }));
       env: {
         ...process.env,
         HOME: home,
+        CODEX_HOME: path.join(home, ".codex"),
         CODEX_TEST_LOG: logPath,
         PATH: `${binDir}:${process.env.PATH}`
       }
@@ -113,11 +122,15 @@ else console.log(JSON.stringify({ ok: true }));
     assert.equal(uninstall.uninstalled, true);
     assert.equal(uninstall.retainedCaptures, true);
     assert.equal(await readFile(retainedCapture, "utf8"), "keep");
-    await assert.rejects(access(marketplaceRoot));
+    const marketplaceAfterUninstall = JSON.parse(
+      await readFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), "utf8")
+    );
+    assert.deepEqual(marketplaceAfterUninstall.plugins.map(item => item.name), ["telegram-bridge"]);
+    assert.equal(await readFile(path.join(telegramPlugin, "marker.txt"), "utf8"), "keep");
     const uninstallCalls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
-    assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@chromium-bridge --json"));
+    assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@nextster --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
-    await assert.rejects(access(path.join(home, ".codex", "plugins", "cache", "chromium-bridge", "0.6.8")));
+    assert.ok(!uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove nextster --json"));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { findCodexCli } from "./codex-cli.mjs";
@@ -29,7 +29,13 @@ const stateDir = path.resolve(
 );
 const installedExtensionDir = path.join(stateDir, "extension");
 const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
-const installedMarketplaceDir = path.join(stateDir, "codex-marketplace");
+const installedMarketplaceDir = path.resolve(
+  process.env.NEXTSTER_MARKETPLACE_DIR || path.join(
+    process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
+    "marketplaces",
+    "nextster"
+  )
+);
 const developmentLinkPath = path.join(stateDir, "dev-link.json");
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
 const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
@@ -113,23 +119,23 @@ const next = readiness?.ready
         : []),
       "Approve local browser access in the onboarding page",
       "Enable Allow User Scripts in the extension details",
-      ...(!skipCodex && !codexResult.skipped ? ["Restart Codex to activate the plugin"] : [])
+      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the plugin"] : [])
     ]
   : hostOnly
   ? [
       "Reload the store-installed Chromium Bridge extension",
-      ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
+      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the updated plugin"] : [])
     ]
   : extensionReload.reloaded
   ? [
       "Chromium Bridge reloaded in the running browser",
-      ...(!skipCodex && !codexResult.skipped ? ["Reload Codex to activate the updated plugin"] : [])
+      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the updated plugin"] : [])
     ]
   : [
       `Open ${browser?.extensionsUrl || "your browser's extensions page"}`,
       "Enable Developer mode",
       `Choose Load unpacked and select ${installedExtensionDir}`,
-      ...(!skipCodex && !codexResult.skipped ? ["Reload Codex after the plugin is installed"] : [])
+      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task after the plugin is installed"] : [])
     ];
 if (!skipCodex && codexResult.reason === "Codex CLI not found") {
   next.push("Install the Codex desktop app or CLI, then rerun this installer to register the plugin");
@@ -163,61 +169,36 @@ async function installCodexPlugin(nodePath, codexPath) {
   const removedObsolete = [];
   for (const command of [
     ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
-    ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]
+    ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"],
+    ["plugin", "remove", "chromium-bridge@chromium-bridge", "--json"],
+    ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]
   ]) {
     removedObsolete.push(await runOptional(codexPath, command));
   }
   await installCodexMarketplace(nodePath);
   const marketplaces = await runJson(codexPath, ["plugin", "marketplace", "list", "--json"]);
-  const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "chromium-bridge");
+  const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "nextster");
   if (existingMarketplace && path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    await execFileAsync(codexPath, ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]);
+    throw new Error(`Codex marketplace nextster already points to ${existingMarketplace.root}; expected ${installedMarketplaceDir}`);
   }
   if (!existingMarketplace || path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
     await execFileAsync(codexPath, ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
   }
 
   const plugins = await runJson(codexPath, ["plugin", "list", "--json"]);
-  const pluginId = "chromium-bridge@chromium-bridge";
+  const pluginId = "chromium-bridge@nextster";
   if (plugins.installed?.some(item => item.pluginId === pluginId)) {
     await execFileAsync(codexPath, ["plugin", "remove", pluginId, "--json"]);
   }
   const installed = await runJson(codexPath, ["plugin", "add", pluginId, "--json"]);
-  const compatibilityPath = await installCodexCacheCompatibilityPath(installed.installedPath);
   return {
     skipped: false,
     command: codexPath,
     pluginId,
     marketplaceRoot: installedMarketplaceDir,
     removedObsolete,
-    installed,
-    compatibilityPath
+    installed
   };
-}
-
-async function installCodexCacheCompatibilityPath(installedPath) {
-  if (!installedPath) return null;
-  const target = path.resolve(installedPath);
-  const pluginDir = path.dirname(target);
-  const marketplaceDir = path.dirname(pluginDir);
-  if (
-    path.basename(pluginDir) !== "chromium-bridge" ||
-    path.basename(marketplaceDir) !== "chromium-bridge"
-  ) {
-    return null;
-  }
-  const compatibilityPath = path.join(marketplaceDir, path.basename(target));
-  if (compatibilityPath === target) return null;
-  await mkdir(marketplaceDir, { recursive: true, mode: 0o700 });
-  try {
-    const existing = await lstat(compatibilityPath);
-    if (!existing.isSymbolicLink()) return null;
-    await rm(compatibilityPath, { force: true });
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  await symlink(path.relative(marketplaceDir, target), compatibilityPath, "dir");
-  return compatibilityPath;
 }
 
 async function migrateLegacyState() {
@@ -258,14 +239,15 @@ async function migrateLegacyState() {
 }
 
 async function installCodexMarketplace(nodePath) {
-  const temporaryDir = `${installedMarketplaceDir}.tmp-${process.pid}`;
-  const backupDir = `${installedMarketplaceDir}.backup-${process.pid}`;
+  const pluginsDir = path.join(installedMarketplaceDir, "plugins");
+  const manifestDir = path.join(installedMarketplaceDir, ".agents", "plugins");
+  const destination = path.join(pluginsDir, "chromium-bridge");
+  const temporaryDir = path.join(pluginsDir, `.chromium-bridge.tmp-${process.pid}`);
+  await mkdir(pluginsDir, { recursive: true, mode: 0o700 });
+  await mkdir(manifestDir, { recursive: true, mode: 0o700 });
   await rm(temporaryDir, { recursive: true, force: true });
-  await rm(backupDir, { recursive: true, force: true });
-  await mkdir(temporaryDir, { recursive: true, mode: 0o700 });
-  await cp(path.join(projectDir, ".agents"), path.join(temporaryDir, ".agents"), { recursive: true });
-  await cp(path.join(projectDir, "plugins"), path.join(temporaryDir, "plugins"), { recursive: true });
-  const mcpPath = path.join(temporaryDir, "plugins", "chromium-bridge", ".mcp.json");
+  await cp(path.join(projectDir, "plugins", "chromium-bridge"), temporaryDir, { recursive: true });
+  const mcpPath = path.join(temporaryDir, ".mcp.json");
   const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8"));
   mcpConfig.mcpServers["chromium-bridge"].command = nodePath;
   mcpConfig.mcpServers["chromium-bridge"].args = [
@@ -274,21 +256,23 @@ async function installCodexMarketplace(nodePath) {
   ];
   await writeFile(mcpPath, `${JSON.stringify(mcpConfig, null, 2)}\n`, { mode: 0o600 });
 
-  let backedUp = false;
-  try {
-    if (existsSync(installedMarketplaceDir)) {
-      await rename(installedMarketplaceDir, backupDir);
-      backedUp = true;
-    }
-    await rename(temporaryDir, installedMarketplaceDir);
-    await rm(backupDir, { recursive: true, force: true });
-  } catch (error) {
-    await rm(temporaryDir, { recursive: true, force: true });
-    if (backedUp && !existsSync(installedMarketplaceDir)) {
-      await rename(backupDir, installedMarketplaceDir);
-    }
-    throw error;
+  await rm(destination, { recursive: true, force: true });
+  await rename(temporaryDir, destination);
+
+  const sourceMarketplace = JSON.parse(await readFile(path.join(projectDir, ".agents", "plugins", "marketplace.json"), "utf8"));
+  const entry = sourceMarketplace.plugins.find(item => item.name === "chromium-bridge");
+  if (sourceMarketplace.name !== "nextster" || !entry) throw new Error("Invalid Nextster marketplace source");
+  const manifestPath = path.join(manifestDir, "marketplace.json");
+  let marketplace = { name: "nextster", interface: { displayName: "Nextster" }, plugins: [] };
+  if (existsSync(manifestPath)) marketplace = JSON.parse(await readFile(manifestPath, "utf8"));
+  if (marketplace.name !== "nextster" || !Array.isArray(marketplace.plugins)) {
+    throw new Error(`Invalid shared marketplace at ${manifestPath}`);
   }
+  marketplace.interface = { ...(marketplace.interface || {}), displayName: "Nextster" };
+  marketplace.plugins = [...marketplace.plugins.filter(item => item.name !== "chromium-bridge"), entry];
+  const temporaryManifest = `${manifestPath}.tmp-${process.pid}`;
+  await writeFile(temporaryManifest, `${JSON.stringify(marketplace, null, 2)}\n`, { mode: 0o600 });
+  await rename(temporaryManifest, manifestPath);
 }
 
 async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, developmentExtensionId) {

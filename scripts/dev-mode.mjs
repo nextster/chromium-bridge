@@ -18,7 +18,7 @@ import {
 const execFileAsync = promisify(execFile);
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultProjectDir = path.resolve(scriptDir, "..");
-const PLUGIN_ID = "chromium-bridge@chromium-bridge";
+const PLUGIN_ID = "chromium-bridge@nextster";
 
 export async function linkDevelopment(options = {}) {
   const projectDir = await validateCheckout(path.resolve(options.projectDir || defaultProjectDir), { requireCanonical: false });
