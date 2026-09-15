@@ -7,9 +7,11 @@ import { lstat, readFile, readdir, readlink, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
+  isRealDirectory,
   marketplaceLocations,
   releaseClaudeMarketplace,
   releaseCodexMarketplace,
+  removeCompatLink,
   removeFromSharedMarketplace,
   unregisterClaudeCode,
   unregisterCodex
@@ -52,10 +54,13 @@ const claudeCode = claudePath ? await unregisterClaudeCode({ claudePath, dryRun 
 // Both the shared root and a not-yet-migrated Codex-only root may hold this
 // plugin; the client marketplace is released only when no plugin remains.
 const marketplaceCleanup = [];
+let compatLinkRemoved = false;
 if (!dryRun) {
-  for (const root of new Set([marketplace.root, marketplace.legacyRoot])) {
-    marketplaceCleanup.push(await removeFromSharedMarketplace(root));
+  marketplaceCleanup.push(await removeFromSharedMarketplace(marketplace.root));
+  if (await isRealDirectory(marketplace.legacyRoot)) {
+    marketplaceCleanup.push(await removeFromSharedMarketplace(marketplace.legacyRoot));
   }
+  compatLinkRemoved = await removeCompatLink(marketplace);
 }
 const existingMarketplaces = marketplaceCleanup.filter(item => item.existed);
 const codexMarketplaceEmpty = existingMarketplaces.length > 0 && existingMarketplaces.every(item => item.codexEmpty);
@@ -124,6 +129,7 @@ console.log(JSON.stringify({
   claudeCode,
   claudeDesktop,
   nextsterMarketplace: marketplaceCleanup,
+  compatLinkRemoved,
   next: [
     "Remove Chromium Bridge from the browser extensions page that was opened",
     ...(codexPath ? ["Start a new Codex task"] : []),
