@@ -27,3 +27,19 @@ test("data directory opener returns only the fixed directory it opened", async (
   assert.deepEqual(calls, [["/usr/bin/open", ["/tmp/bridge"]]]);
   assert.deepEqual(result, { opened: true, path: "/tmp/bridge" });
 });
+
+test("data directory opener tolerates explorer.exe's nonzero success status", async () => {
+  const result = await openDirectory("C:\\Users\\Ann\\.chromium-bridge", {
+    platform: "win32",
+    execute: async () => {
+      throw Object.assign(new Error("Command failed"), { code: 1 });
+    }
+  });
+  assert.equal(result.opened, true);
+  await assert.rejects(openDirectory("/tmp/bridge", {
+    platform: "darwin",
+    execute: async () => {
+      throw Object.assign(new Error("Command failed"), { code: 1 });
+    }
+  }), /Command failed/);
+});

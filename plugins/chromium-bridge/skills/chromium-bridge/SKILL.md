@@ -63,9 +63,9 @@ Prefer the fewest semantically complete tool calls. Independent read-only operat
 
 - Ordinary navigation, field entry, option selection, and non-submitting UI clicks can proceed directly when they are within the user's request.
 - Judge consequences by the target action, not merely by the tool name. `evaluate` may combine routine actions, but must not bypass confirmation for an external side effect.
-- Do not submit forms, publish content, send messages, change account settings, make purchases, make payments, or file government forms without the confirmation required by the active Codex policy.
+- Do not submit forms, publish content, send messages, change account settings, make purchases, make payments, or file government forms without the confirmation required by the active agent client's policy.
 - Keep `includeSecrets` false by default for cookies and capture.
-- Set `includeSecrets` true only when the user explicitly requests raw credentials or an exact authenticated replay and understands that secrets will enter local Codex tool output or capture files.
+- Set `includeSecrets` true only when the user explicitly requests raw credentials or an exact authenticated replay and understands that secrets will enter the agent's tool output or local capture files.
 - Filter capture to the narrowest relevant domain and stop it immediately after the required flow.
 - Never request all-URL capture unless the user explicitly asked for unfiltered capture; ordinary capture requires a URL substring.
 - Always call `capture_stop` before finishing a task that started capture, even after an error.

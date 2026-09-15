@@ -1,3 +1,5 @@
+export const READY_STEP = "Browser bridge is ready.";
+
 export function bridgeKind(status, storeExtensionId, developmentExtensionId) {
   const id = status?.host?.extension?.id || "";
   if (!status?.extension?.pong || !id) return "missing";
@@ -23,5 +25,5 @@ export function storeReadinessStep(status, storeExtensionId, developmentExtensio
   if (!extension.userScriptsAvailable) {
     return "Open extension details and enable Allow User Scripts.";
   }
-  return "Browser and Codex bridge are ready.";
+  return READY_STEP;
 }

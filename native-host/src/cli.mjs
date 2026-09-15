@@ -1,14 +1,9 @@
 #!/usr/bin/env node
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
 import process from "node:process";
+import { connectControl, controlEndpoint } from "./control-endpoint.mjs";
 
-const socketPath = path.resolve(
-  process.env.CHROMIUM_BRIDGE_SOCKET ||
-  process.env.ARC_CODEX_SOCKET ||
-  path.join(os.homedir(), ".chromium-bridge", "control.sock")
-);
+const endpoint = controlEndpoint();
+const socketPath = endpoint.path;
 const [command, ...args] = process.argv.slice(2);
 
 try {
@@ -128,8 +123,7 @@ function captureArgs(argv) {
 
 function request(method, params = {}, timeoutMs = 30000) {
   const id = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection(socketPath);
+  return connectControl(endpoint).then(socket => new Promise((resolve, reject) => {
     let buffered = "";
     let settled = false;
 
@@ -141,9 +135,7 @@ function request(method, params = {}, timeoutMs = 30000) {
       else resolve(result);
     };
 
-    socket.setEncoding("utf8");
     socket.setTimeout(timeoutMs, () => finish(new Error(`Timed out waiting for ${method}`)));
-    socket.once("connect", () => socket.write(`${JSON.stringify({ id, method, params })}\n`));
     socket.on("data", chunk => {
       buffered += chunk;
       const newline = buffered.indexOf("\n");
@@ -158,7 +150,8 @@ function request(method, params = {}, timeoutMs = 30000) {
       }
     });
     socket.once("error", error => finish(error));
-  });
+    socket.write(`${JSON.stringify({ id, method, params })}\n`);
+  }));
 }
 
 function parseJson(value, label) {

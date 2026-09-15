@@ -1,5 +1,5 @@
 {
-  "name": "chromium-bridge-codex-plugin",
+  "name": "chromium-bridge-agent-plugin",
   "version": "0.6.9",
   "private": true,
   "type": "module",

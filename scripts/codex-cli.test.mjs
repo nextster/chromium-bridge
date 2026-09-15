@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { findCodexCli } from "./codex-cli.mjs";
 
-test("findCodexCli detects the CLI bundled inside a desktop app", async () => {
+test("findCodexCli detects the CLI bundled inside a desktop app", {
+  skip: process.platform === "win32" && "macOS app bundles only"
+}, async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-codex-app-"));
   const applicationRoot = path.join(home, "Applications");
   const bundledCli = path.join(applicationRoot, "ChatGPT.app", "Contents", "Resources", "codex");

@@ -10,8 +10,14 @@ export function directoryOpenCommand(directory, platform = process.platform) {
 }
 
 export async function openDirectory(directory, options = {}) {
-  const command = directoryOpenCommand(directory, options.platform);
+  const platform = options.platform || process.platform;
+  const command = directoryOpenCommand(directory, platform);
   const execute = options.execute || execFileAsync;
-  await execute(command.executable, command.args);
+  try {
+    await execute(command.executable, command.args);
+  } catch (error) {
+    // explorer.exe exits with status 1 even after it opens the folder.
+    if (!(platform === "win32" && error?.code === 1)) throw error;
+  }
   return { opened: true, path: directory };
 }

@@ -26,7 +26,15 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 if [ "$(uname -s)" != "Darwin" ] && ! has_argument "--dry-run" "$@"; then
-  echo "Chromium Bridge installation currently supports macOS only." >&2
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      echo "On Windows, run install.ps1 from PowerShell instead:" >&2
+      echo "  irm https://raw.githubusercontent.com/$repository/main/install.ps1 | iex" >&2
+      ;;
+    *)
+      echo "install.sh supports macOS. Use install.ps1 on Windows." >&2
+      ;;
+  esac
   exit 1
 fi
 

@@ -8,10 +8,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const pluginDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const serverPath = path.join(pluginDir, "mcp", "server.mjs");
+const serverPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/mcp-server.mjs");
 
-test("MCP server exposes Chromium and provider tools over the control socket", async t => {
+test("MCP server exposes Chromium and provider tools over the control socket", {
+  skip: process.platform === "win32" && "uses an unauthenticated Unix socket"
+}, async t => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-mcp-"));
   const socketPath = path.join(tempDir, "control.sock");
   let connections = 0;

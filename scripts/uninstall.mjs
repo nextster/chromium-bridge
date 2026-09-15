@@ -3,16 +3,29 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { lstat, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import {
+  marketplaceLocations,
+  releaseClaudeMarketplace,
+  releaseCodexMarketplace,
+  removeFromSharedMarketplace,
+  unregisterClaudeCode,
+  unregisterCodex
+} from "./agent-clients.mjs";
+import { findClaudeCli } from "./claude-cli.mjs";
+import { unregisterClaudeDesktop } from "./claude-desktop.mjs";
 import { findCodexCli } from "./codex-cli.mjs";
+import { detectBrowser, openInBrowser } from "./platform.mjs";
 
 const execFileAsync = promisify(execFile);
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has("--dry-run");
 const purge = args.has("--purge");
 const skipCodex = args.has("--no-codex");
+const skipClaudeCode = args.has("--no-claude") || args.has("--no-claude-code");
+const skipClaudeDesktop = args.has("--no-claude") || args.has("--no-claude-desktop");
 const skipOpen = args.has("--no-open");
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const legacyStateDir = path.join(os.homedir(), ".chromium-sidecar");
@@ -23,58 +36,51 @@ const stateDirs = [
   stateDir,
   ...(!process.env.CHROMIUM_BRIDGE_STATE_DIR && path.resolve(legacyStateDir) !== stateDir ? [legacyStateDir] : [])
 ];
-const nextsterMarketplaceDir = path.resolve(
-  process.env.NEXTSTER_MARKETPLACE_DIR || path.join(
-    process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
-    "marketplaces",
-    "nextster"
-  )
-);
+const marketplace = marketplaceLocations();
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
-const removedCodex = [];
+const bootstrapPath = path.join(stateDir, "runtime", "runtime-bootstrap.mjs");
 
-if (process.platform !== "darwin" && !dryRun) {
-  throw new Error("Chromium Bridge uninstallation currently supports macOS only.");
+if (!["darwin", "win32"].includes(process.platform) && !dryRun) {
+  throw new Error("Chromium Bridge uninstallation supports macOS and Windows.");
 }
 
 const codexPath = skipCodex ? null : await findCodexCli();
-if (codexPath) {
-  for (const command of [
-    ["plugin", "remove", "chromium-bridge@nextster", "--json"],
-    ["plugin", "remove", "chromium-bridge@chromium-bridge", "--json"],
-    ["plugin", "marketplace", "remove", "chromium-bridge", "--json"],
-    ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
-    ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"]
-  ]) {
-    if (dryRun) {
-      removedCodex.push({ command, dryRun: true });
-    } else {
-      removedCodex.push(await runOptional(codexPath, command));
-    }
+const claudePath = skipClaudeCode ? null : await findClaudeCli();
+const codex = codexPath ? await unregisterCodex({ codexPath, dryRun }) : [];
+const claudeCode = claudePath ? await unregisterClaudeCode({ claudePath, dryRun }) : [];
+
+// Both the shared root and a not-yet-migrated Codex-only root may hold this
+// plugin; the client marketplace is released only when no plugin remains.
+const marketplaceCleanup = [];
+if (!dryRun) {
+  for (const root of new Set([marketplace.root, marketplace.legacyRoot])) {
+    marketplaceCleanup.push(await removeFromSharedMarketplace(root));
   }
 }
-const nextsterCleanup = dryRun
-  ? { removed: false, dryRun: true }
-  : await removeNextsterPlugin();
-if (codexPath && nextsterCleanup.empty) {
-  const command = ["plugin", "marketplace", "remove", "nextster", "--json"];
-  removedCodex.push(dryRun ? { command, dryRun: true } : await runOptional(codexPath, command));
-}
+const existingMarketplaces = marketplaceCleanup.filter(item => item.existed);
+const codexMarketplaceEmpty = existingMarketplaces.length > 0 && existingMarketplaces.every(item => item.codexEmpty);
+const claudeMarketplaceEmpty = existingMarketplaces.length > 0 && existingMarketplaces.every(item => item.claudeEmpty);
+if (codexPath) codex.push(...await releaseCodexMarketplace({ codexPath, marketplaceEmpty: codexMarketplaceEmpty, dryRun }));
+if (claudePath) claudeCode.push(...await releaseClaudeMarketplace({ claudePath, marketplaceEmpty: claudeMarketplaceEmpty, dryRun }));
+const claudeDesktop = skipClaudeDesktop
+  ? { skipped: true, reason: "disabled by --no-claude-desktop" }
+  : await unregisterClaudeDesktop({ bootstrapPath, dryRun });
 if (!dryRun) await removeCodexCacheCompatibilityPaths();
 
 const nativeHost = JSON.parse((await execFileAsync(process.execPath, [
   installerPath,
   "--uninstall",
   ...(dryRun ? ["--dry-run"] : [])
-])).stdout);
+], { windowsHide: true })).stdout);
 
 const retainedCaptureDirs = purge
   ? []
   : stateDirs.map(directory => path.join(directory, "captures")).filter(existsSync);
 const retainedCaptures = retainedCaptureDirs.length > 0;
+const retainedPaths = [];
 if (!dryRun) {
   if (purge) {
-    await Promise.all(stateDirs.map(directory => rm(directory, { recursive: true, force: true })));
+    for (const directory of stateDirs) await removePath(directory);
   } else {
     for (const directory of stateDirs) {
       for (const entry of [
@@ -82,25 +88,26 @@ if (!dryRun) {
         "codex-marketplace",
         "current.json",
         "control.sock",
+        "control.token",
         "dev-link.json",
         "extension",
+        "native-messaging",
         "node",
         "runtime"
       ]) {
-        await rm(path.join(directory, entry), { recursive: true, force: true });
+        await removePath(path.join(directory, entry));
       }
       if (!existsSync(path.join(directory, "captures"))) {
-        await rm(directory, { recursive: true, force: true });
+        await removePath(directory);
       }
     }
   }
 }
 
 const storeExtensionId = await readStoreExtensionId();
-const browser = detectBrowser();
+const browser = await detectBrowser();
 if (!skipOpen && !dryRun && browser) {
-  const detailsUrl = `${browser.extensionsUrl}${storeExtensionId ? `?id=${storeExtensionId}` : ""}`;
-  await execFileAsync("/usr/bin/open", ["-a", browser.application, detailsUrl]);
+  await openInBrowser(browser, `${browser.extensionsUrl}${storeExtensionId ? `?id=${storeExtensionId}` : ""}`);
 }
 
 console.log(JSON.stringify({
@@ -111,26 +118,30 @@ console.log(JSON.stringify({
   stateDirs,
   retainedCaptures,
   retainedCaptureDirs,
+  retainedPaths,
   nativeHost,
-  codex: removedCodex,
-  nextsterMarketplace: nextsterCleanup,
+  codex,
+  claudeCode,
+  claudeDesktop,
+  nextsterMarketplace: marketplaceCleanup,
   next: [
     "Remove Chromium Bridge from the browser extensions page that was opened",
-    "Start a new Codex task",
-    ...retainedCaptureDirs.map(directory => `Captures remain under ${directory}`)
+    ...(codexPath ? ["Start a new Codex task"] : []),
+    ...(claudePath ? ["Start a new Claude Code session"] : []),
+    ...(claudeDesktop.configs?.some(item => item.action === "removed") ? ["Restart Claude Desktop"] : []),
+    ...retainedCaptureDirs.map(directory => `Captures remain under ${directory}`),
+    ...retainedPaths.map(filePath => `Close browsers that use Chromium Bridge, then delete ${filePath}`)
   ]
 }, null, 2));
 
-async function runOptional(command, commandArgs) {
+// Windows cannot delete a running node.exe, such as the portable runtime that
+// executes this script or a native host kept alive by an open browser.
+async function removePath(target) {
   try {
-    const { stdout } = await execFileAsync(command, commandArgs);
-    return { command: commandArgs, removed: true, output: parseJson(stdout) };
+    await rm(target, { recursive: true, force: true });
   } catch (error) {
-    return {
-      command: commandArgs,
-      removed: false,
-      reason: String(error?.stderr || error?.message || error).trim()
-    };
+    if (process.platform !== "win32" || !["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"].includes(error?.code)) throw error;
+    retainedPaths.push(target);
   }
 }
 
@@ -157,35 +168,6 @@ async function removeCodexCacheCompatibilityPaths() {
   }));
 }
 
-async function removeNextsterPlugin() {
-  const manifestPath = path.join(nextsterMarketplaceDir, ".agents", "plugins", "marketplace.json");
-  if (!existsSync(manifestPath)) return { removed: false, empty: false };
-  const marketplace = JSON.parse(await readFile(manifestPath, "utf8"));
-  if (marketplace.name !== "nextster" || !Array.isArray(marketplace.plugins)) {
-    throw new Error(`Invalid shared marketplace at ${manifestPath}`);
-  }
-  const plugins = marketplace.plugins.filter(item => item.name !== "chromium-bridge");
-  const removed = plugins.length !== marketplace.plugins.length;
-  await rm(path.join(nextsterMarketplaceDir, "plugins", "chromium-bridge"), { recursive: true, force: true });
-  if (plugins.length === 0) {
-    await rm(nextsterMarketplaceDir, { recursive: true, force: true });
-    return { removed, empty: true };
-  }
-  marketplace.plugins = plugins;
-  const temporary = `${manifestPath}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(marketplace, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, manifestPath);
-  return { removed, empty: false };
-}
-
-function parseJson(value) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return String(value || "").trim();
-  }
-}
-
 async function readStoreExtensionId() {
   try {
     const item = JSON.parse(await readFile(path.join(projectDir, "store", "item.json"), "utf8"));
@@ -194,16 +176,4 @@ async function readStoreExtensionId() {
     if (error?.code === "ENOENT") return "";
     throw error;
   }
-}
-
-function detectBrowser() {
-  const candidates = [
-    { application: "Arc", extensionsUrl: "arc://extensions", path: "/Applications/Arc.app" },
-    { application: "Google Chrome", extensionsUrl: "chrome://extensions", path: "/Applications/Google Chrome.app" },
-    { application: "Brave Browser", extensionsUrl: "brave://extensions", path: "/Applications/Brave Browser.app" },
-    { application: "Microsoft Edge", extensionsUrl: "edge://extensions", path: "/Applications/Microsoft Edge.app" },
-    { application: "Vivaldi", extensionsUrl: "vivaldi://extensions", path: "/Applications/Vivaldi.app" },
-    { application: "Chromium", extensionsUrl: "chrome://extensions", path: "/Applications/Chromium.app" }
-  ];
-  return candidates.find(candidate => existsSync(candidate.path));
 }

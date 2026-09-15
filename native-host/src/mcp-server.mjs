@@ -1,16 +1,12 @@
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
 import process from "node:process";
+import { PRODUCT_VERSION } from "./constants.mjs";
+import { connectControl, controlEndpoint } from "./control-endpoint.mjs";
 
 const SERVER_NAME = "chromium-bridge";
-const SERVER_VERSION = "0.6.9";
+const SERVER_VERSION = PRODUCT_VERSION;
 const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
-const socketPath = path.resolve(
-  process.env.CHROMIUM_BRIDGE_SOCKET ||
-  process.env.ARC_CODEX_SOCKET ||
-  path.join(os.homedir(), ".chromium-bridge", "control.sock")
-);
+const endpoint = controlEndpoint();
+const socketPath = endpoint.path;
 const refMaps = new Map();
 const ownedTabIds = new Set();
 let controlClient;
@@ -720,8 +716,8 @@ function extension(command, params = {}) {
 }
 
 class ControlClient {
-  constructor(filePath) {
-    this.filePath = filePath;
+  constructor(controlEndpoint) {
+    this.endpoint = controlEndpoint;
     this.socket = null;
     this.connecting = null;
     this.buffer = "";
@@ -747,23 +743,16 @@ class ControlClient {
     if (this.socket && !this.socket.destroyed) return Promise.resolve(this.socket);
     if (this.connecting) return this.connecting;
 
-    this.connecting = new Promise((resolve, reject) => {
-      const socket = net.createConnection(this.filePath);
-      socket.setEncoding("utf8");
-      socket.once("connect", () => {
-        this.socket = socket;
-        this.connecting = null;
-        resolve(socket);
-      });
+    this.connecting = connectControl(this.endpoint).then(socket => {
+      this.socket = socket;
+      this.connecting = null;
       socket.on("data", chunk => this.handleData(chunk));
-      socket.once("error", error => {
-        if (this.connecting) {
-          this.connecting = null;
-          reject(error);
-        }
-        this.handleDisconnect(socket, error);
-      });
+      socket.once("error", error => this.handleDisconnect(socket, error));
       socket.once("close", () => this.handleDisconnect(socket, new Error("Chromium Bridge control socket closed")));
+      return socket;
+    }, error => {
+      this.connecting = null;
+      throw error;
     });
     return this.connecting;
   }
@@ -818,7 +807,7 @@ class ControlClient {
   }
 }
 
-controlClient = new ControlClient(socketPath);
+controlClient = new ControlClient(endpoint);
 
 function snapshotSource(maxElements, maxTextChars, includeRects) {
   return `(() => {

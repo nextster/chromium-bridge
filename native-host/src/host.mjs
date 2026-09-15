@@ -7,13 +7,16 @@ import {
   chmod,
   lstat,
   mkdir,
+  readFile,
   readdir,
   rm,
   unlink,
   writeFile
 } from "node:fs/promises";
 import { arcProviderInfo, focusArcSpace, listArcSpaces } from "./arc-provider.mjs";
+import { atomicWriteFile } from "./atomic-file.mjs";
 import { EXTENSION_ORIGIN, NATIVE_HOST_NAME, PRODUCT_VERSION } from "./constants.mjs";
+import { controlEndpoint, createControlToken, createServerHandshake } from "./control-endpoint.mjs";
 import { readNativeMessages, writeNativeMessage } from "./native-protocol.mjs";
 import { openDirectory } from "./open-directory.mjs";
 import { renderCurl } from "./replay.mjs";
@@ -30,11 +33,13 @@ const expectedOrigins = allowedOrigins(
 );
 const configuredStateDir = process.env.CHROMIUM_BRIDGE_STATE_DIR || process.env.ARC_CODEX_STATE_DIR;
 const configuredSocketPath = process.env.CHROMIUM_BRIDGE_SOCKET || process.env.ARC_CODEX_SOCKET;
-const stateDir = path.resolve(configuredStateDir || path.join(os.homedir(), ".chromium-bridge"));
-const socketPath = path.resolve(configuredSocketPath || path.join(stateDir, "control.sock"));
-const compatibilitySocketPath = configuredStateDir || configuredSocketPath
+const endpoint = controlEndpoint();
+const stateDir = endpoint.stateDir;
+const socketPath = endpoint.path;
+const compatibilitySocketPath = configuredStateDir || configuredSocketPath || endpoint.transport !== "unix"
   ? null
   : path.resolve(process.env.CHROMIUM_BRIDGE_LEGACY_SOCKET || path.join(os.homedir(), ".arc-codex-bridge", "control.sock"));
+const controlToken = endpoint.authenticated ? createControlToken() : null;
 const capturesRoot = path.resolve(
   process.env.CHROMIUM_BRIDGE_CAPTURES_DIR || process.env.ARC_CODEX_CAPTURES_DIR || path.join(stateDir, "captures")
 );
@@ -81,6 +86,7 @@ let eventFlushTimer = null;
 let eventMemoryBytes = 0;
 let eventBytesWritten = 0;
 let captureLimitReached = false;
+let controlTokenWritten = false;
 
 if (!expectedOrigins.includes(callerOrigin)) {
   fatal(`Refusing Native Messaging caller ${callerOrigin || "<missing>"}; expected an installed extension origin`);
@@ -88,6 +94,7 @@ if (!expectedOrigins.includes(callerOrigin)) {
 
 await prepareFilesystem();
 await startControlServer(socketPath);
+if (controlToken) await writeControlToken();
 if (compatibilitySocketPath && compatibilitySocketPath !== socketPath) {
   void maintainCompatibilitySocket(compatibilitySocketPath);
 }
@@ -149,6 +156,11 @@ function handleClient(socket) {
   socket.setEncoding("utf8");
   socket.setTimeout(60000, () => socket.destroy(new Error("Control socket timed out")));
   let buffered = "";
+  const handshake = controlToken ? createServerHandshake(controlToken) : null;
+  let authenticated = !handshake;
+  const handshakeTimer = handshake
+    ? setTimeout(() => socket.destroy(new Error("Control client did not authenticate")), 5000)
+    : null;
 
   socket.on("data", chunk => {
     buffered += chunk;
@@ -161,10 +173,27 @@ function handleClient(socket) {
       const line = buffered.slice(0, newline);
       buffered = buffered.slice(newline + 1);
       if (!line.trim()) continue;
+      if (!authenticated) {
+        try {
+          const step = handshake.receive(JSON.parse(line));
+          if (step.reply) writeControl(socket, step.reply);
+          if (step.authenticated) {
+            authenticated = true;
+            clearTimeout(handshakeTimer);
+          }
+        } catch {
+          socket.destroy();
+          return;
+        }
+        continue;
+      }
       void handleControlLine(socket, line);
     }
   });
-  socket.on("close", () => clients.delete(socket));
+  socket.on("close", () => {
+    clearTimeout(handshakeTimer);
+    clients.delete(socket);
+  });
   socket.on("error", () => {});
 }
 
@@ -360,6 +389,8 @@ function hostInfo() {
     startedAt,
     callerOrigin,
     socketPath,
+    controlTransport: endpoint.transport,
+    controlAuthenticated: endpoint.authenticated,
     socketPaths: listeners.map(listener => listener.filePath),
     compatibilitySocketPath,
     captureDir,
@@ -384,13 +415,31 @@ async function prepareFilesystem() {
 }
 
 async function startControlServer(filePath) {
+  const server = net.createServer(handleClient);
+  if (endpoint.transport === "pipe") {
+    // libuv creates the first pipe instance exclusively, so a running host or a
+    // squatter makes listen fail with EADDRINUSE instead of sharing the name.
+    await listen(server, filePath);
+    listeners.push({ server, filePath, identity: null });
+    return;
+  }
   await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   await chmod(path.dirname(filePath), 0o700);
   await ensureSocketAvailable(filePath);
-  const server = net.createServer(handleClient);
   await listen(server, filePath);
   await chmod(filePath, 0o600);
   listeners.push({ server, filePath, identity: await socketInode(filePath) });
+}
+
+async function writeControlToken() {
+  await atomicWriteFile(endpoint.tokenPath, `${controlToken}\n`, 0o600);
+  controlTokenWritten = true;
+}
+
+async function removeControlToken() {
+  if (!controlTokenWritten) return;
+  const current = await readFile(endpoint.tokenPath, "utf8").catch(() => "");
+  if (current.trim() === controlToken) await unlink(endpoint.tokenPath).catch(() => {});
 }
 
 async function maintainCompatibilitySocket(filePath) {
@@ -499,6 +548,7 @@ async function shutdown(code, error) {
       await unlink(listener.filePath).catch(() => {});
     }
   }
+  await removeControlToken();
   process.exit(code);
 }
 

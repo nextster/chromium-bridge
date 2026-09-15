@@ -14,7 +14,9 @@ const shellFiles = files.filter(file => /\.sh$/i.test(file));
 const jsonFiles = files.filter(file => /\.json$/i.test(file));
 
 await Promise.all(sourceFiles.map(file => execFileAsync(process.execPath, ["--check", path.join(projectDir, file)])));
-await Promise.all(shellFiles.map(file => execFileAsync("/bin/sh", ["-n", path.join(projectDir, file)])));
+if (process.platform !== "win32") {
+  await Promise.all(shellFiles.map(file => execFileAsync("/bin/sh", ["-n", path.join(projectDir, file)])));
+}
 await Promise.all(jsonFiles.map(async file => JSON.parse(await readFile(path.join(projectDir, file), "utf8"))));
 
 const rootPackage = await readJson("package.json");
@@ -22,7 +24,8 @@ const versionFiles = [
   ["extension/manifest.json", "version"],
   ["native-host/package.json", "version"],
   ["plugins/chromium-bridge/package.json", "version"],
-  ["plugins/chromium-bridge/.codex-plugin/plugin.json", "version"]
+  ["plugins/chromium-bridge/.codex-plugin/plugin.json", "version"],
+  ["plugins/chromium-bridge/.claude-plugin/plugin.json", "version"]
 ];
 for (const [file, key] of versionFiles) {
   const value = (await readJson(file))[key];
@@ -33,6 +36,14 @@ const releaseTag = `v${rootPackage.version}`;
 const installer = await readFile(path.join(projectDir, "install.sh"), "utf8");
 if (!installer.includes(`ref="\${CHROMIUM_BRIDGE_REF:-${releaseTag}}"`)) {
   throw new Error(`install.sh default ref does not match ${releaseTag}`);
+}
+const windowsInstaller = await readFile(path.join(projectDir, "install.ps1"), "utf8");
+if (!windowsInstaller.includes(`$ref = if ($env:CHROMIUM_BRIDGE_REF) { $env:CHROMIUM_BRIDGE_REF } else { '${releaseTag}' }`)) {
+  throw new Error(`install.ps1 default ref does not match ${releaseTag}`);
+}
+const nodeVersion = installer.match(/^node_version="([0-9.]+)"$/m)?.[1];
+if (!nodeVersion || !windowsInstaller.includes(`$nodeVersion = '${nodeVersion}'`)) {
+  throw new Error("install.sh and install.ps1 must pin the same Node.js version");
 }
 
 let formula = "";

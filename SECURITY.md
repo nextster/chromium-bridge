@@ -15,10 +15,22 @@ Do not include real cookies, authorization headers, capture files, or private br
 Chromium Bridge trusts:
 
 - The extension IDs listed in the installed Native Messaging manifest
-- Local processes running as the same operating-system account that can access the owner-only control socket
+- Local processes running as the same operating-system account that can access the owner-only control endpoint
 - Local clients and AI services that the user intentionally connects
 
 It does not expose an HTTP or TCP server. The extension rejects browser-data commands until popup consent and website permission are present. Native browser providers apply the same consent gate.
+
+## Local control endpoint
+
+On macOS the control endpoint is a Unix socket with mode `0600` inside the `0700` state directory, so filesystem permissions restrict it to the current account.
+
+Windows named pipes live in a machine-wide namespace. Node.js creates them with the default pipe security descriptor and does not opt out of remote SMB clients, so Chromium Bridge does not rely on the pipe ACL for access control and authenticates every pipe connection instead:
+
+- The native host creates the first pipe instance exclusively. If another process already owns the name, the host fails instead of sharing it.
+- At startup the host writes a random 256-bit token to `%USERPROFILE%\.chromium-bridge\control.token`, which inherits the user profile ACL, and removes it on exit.
+- Client and host exchange random nonces and prove knowledge of the token with HMAC-SHA256 in both directions before any request is processed. The token itself never crosses the pipe.
+
+A process that cannot read the token file, including another local non-admin user or a remote client, cannot send commands. A process that squats the pipe name cannot impersonate the host, because clients reject a host that fails the proof before sending any request. Administrators, SYSTEM, and malware running as the same user can read the token and remain inside the trust boundary, as they do on macOS.
 
 Raw cookie and capture modes intentionally expose sensitive data and should be enabled only for a specific task. Captures persist locally until purged.
 
@@ -30,4 +42,6 @@ The extension UI may reveal only the Native Host's fixed state directory. Browse
 
 ## Installer runtime
 
-The public shell installer prefers an existing Node.js 20+ executable. If none is available, it downloads a pinned macOS Node.js archive over HTTPS, verifies the architecture-specific SHA-256 embedded in `install.sh`, and installs it only under `~/.chromium-bridge`. It does not use `sudo`, modify a global Node installation, or execute an unverified runtime archive.
+The public installers prefer an existing Node.js 20+ executable. If none is available, `install.sh` downloads a pinned macOS Node.js archive and `install.ps1` downloads a pinned Windows Node.js ZIP over HTTPS, verify the architecture-specific SHA-256 embedded in the script, and install it only under the Chromium Bridge state directory. They do not use `sudo` or administrator rights, modify a global Node installation, or execute an unverified runtime archive.
+
+Windows Native Messaging registration writes only per-user `HKCU\Software\<browser>\NativeMessagingHosts\com.chromium_bridge.bridge` keys. Agent client registration edits only Chromium Bridge's own entries in the shared plugin marketplace and in `claude_desktop_config.json`, and it keeps a backup of the previous Claude Desktop config.
