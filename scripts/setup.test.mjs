@@ -11,14 +11,26 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("setup persists Codex files and uninstall preserves captures", {
+test("setup registers Codex and Claude clients in the shared marketplace and uninstall preserves captures", {
   skip: process.platform !== "darwin"
 }, async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-setup-"));
   const binDir = path.join(home, "test-bin");
   const codexPath = path.join(binDir, "codex");
+  const claudePath = path.join(binDir, "claude");
   const logPath = path.join(home, "codex-calls.ndjson");
+  const claudeLogPath = path.join(home, "claude-calls.ndjson");
   await mkdir(binDir, { recursive: true });
+  await writeFile(claudePath, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(process.env.CLAUDE_TEST_LOG, JSON.stringify(args) + "\\n");
+if (args.join(" ") === "plugin marketplace list --json") console.log("[]");
+else if (args.join(" ") === "plugin list --json") console.log("[]");
+else console.log("ok");
+`, { mode: 0o700 });
+  await chmod(claudePath, 0o700);
+  await mkdir(path.join(home, "Applications", "Claude.app"), { recursive: true });
   await writeFile(codexPath, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -51,12 +63,14 @@ else console.log(JSON.stringify({ ok: true }));
     await writeFile(legacyCli, "old");
     await writeFile(legacyManifest, "{}");
     await writeFile(path.join(home, ".chromium-sidecar", "dev-link.json"), "{}", { mode: 0o600 });
-    const marketplaceRoot = path.join(home, ".codex", "marketplaces", "nextster");
+    const legacyMarketplaceRoot = path.join(home, ".codex", "marketplaces", "nextster");
+    const marketplaceRoot = path.join(home, ".agent-plugins", "nextster");
+    const legacyTelegramPlugin = path.join(legacyMarketplaceRoot, "plugins", "telegram-bridge");
     const telegramPlugin = path.join(marketplaceRoot, "plugins", "telegram-bridge");
-    await mkdir(path.join(marketplaceRoot, ".agents", "plugins"), { recursive: true });
-    await mkdir(telegramPlugin, { recursive: true });
-    await writeFile(path.join(telegramPlugin, "marker.txt"), "keep");
-    await writeFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), JSON.stringify({
+    await mkdir(path.join(legacyMarketplaceRoot, ".agents", "plugins"), { recursive: true });
+    await mkdir(legacyTelegramPlugin, { recursive: true });
+    await writeFile(path.join(legacyTelegramPlugin, "marker.txt"), "keep");
+    await writeFile(path.join(legacyMarketplaceRoot, ".agents", "plugins", "marketplace.json"), JSON.stringify({
       name: "nextster",
       interface: { displayName: "Nextster" },
       plugins: [{ name: "telegram-bridge", source: { source: "local", path: "./plugins/telegram-bridge" } }]
@@ -72,8 +86,9 @@ else console.log(JSON.stringify({ ok: true }));
         HOME: home,
         CODEX_HOME: path.join(home, ".codex"),
         CODEX_TEST_LOG: logPath,
+        CLAUDE_TEST_LOG: claudeLogPath,
         CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "nextster", "chromium-bridge", "0.6.9"),
-        PATH: `${binDir}:${process.env.PATH}`
+        PATH: `${binDir}:${path.dirname(process.execPath)}:/usr/bin:/bin`
       }
     });
     const result = JSON.parse(stdout);
@@ -85,6 +100,9 @@ else console.log(JSON.stringify({ ok: true }));
     await assert.rejects(access(legacyManifest));
     await assert.rejects(access(path.join(home, ".chromium-bridge", "bin", "chromium-sidecar")));
     assert.equal(result.codex.marketplaceRoot, marketplaceRoot);
+    assert.equal(result.marketplace.migration.moved, true);
+    await assert.rejects(access(legacyMarketplaceRoot));
+    assert.match(await readFile(path.join(marketplaceRoot, "README.md"), "utf8"), /shared by\nCodex and Claude Code/);
     const marketplace = JSON.parse(
       await readFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), "utf8")
     );
@@ -94,11 +112,32 @@ else console.log(JSON.stringify({ ok: true }));
     const mcp = JSON.parse(
       await readFile(path.join(marketplaceRoot, "plugins", "chromium-bridge", ".mcp.json"), "utf8")
     );
-    assert.equal(mcp.mcpServers["chromium-bridge"].command, result.nativeHost.node);
-    assert.deepEqual(mcp.mcpServers["chromium-bridge"].args, [
-      path.join(home, ".chromium-bridge", "runtime", "runtime-bootstrap.mjs"),
-      "mcp"
+    const bootstrapPath = path.join(home, ".chromium-bridge", "runtime", "runtime-bootstrap.mjs");
+    assert.deepEqual(mcp.mcpServers["chromium-bridge"], {
+      command: result.nativeHost.node,
+      args: [bootstrapPath, "mcp"]
+    });
+    await access(path.join(home, ".chromium-bridge", "runtime", "mcp-server.mjs"));
+    const claudeMarketplace = JSON.parse(
+      await readFile(path.join(marketplaceRoot, ".claude-plugin", "marketplace.json"), "utf8")
+    );
+    assert.equal(claudeMarketplace.name, "nextster");
+    assert.deepEqual(claudeMarketplace.plugins.map(item => [item.name, item.source]), [
+      ["chromium-bridge", "./plugins/chromium-bridge"]
     ]);
+    const claudeCalls = (await readFile(claudeLogPath, "utf8")).trim().split("\n").map(JSON.parse);
+    assert.deepEqual(claudeCalls.map(args => args.join(" ")), [
+      "plugin marketplace list --json",
+      `plugin marketplace add ${marketplaceRoot} --scope user`,
+      "plugin list --json",
+      "plugin install chromium-bridge@nextster --scope user"
+    ]);
+    assert.equal(result.claudeDesktop.restartRequired, true);
+    const desktopConfigPath = path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    assert.deepEqual(JSON.parse(await readFile(desktopConfigPath, "utf8")).mcpServers["chromium-bridge"], {
+      command: result.nativeHost.node,
+      args: [bootstrapPath, "mcp"]
+    });
     const calls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(calls.some(args => args.join(" ") === `plugin marketplace add ${marketplaceRoot} --json`));
     assert.ok(calls.some(args => args.join(" ") === "plugin add chromium-bridge@nextster --json"));
@@ -116,7 +155,8 @@ else console.log(JSON.stringify({ ok: true }));
         HOME: home,
         CODEX_HOME: path.join(home, ".codex"),
         CODEX_TEST_LOG: logPath,
-        PATH: `${binDir}:${process.env.PATH}`
+        CLAUDE_TEST_LOG: claudeLogPath,
+        PATH: `${binDir}:${path.dirname(process.execPath)}:/usr/bin:/bin`
       }
     })).stdout);
     assert.equal(uninstall.uninstalled, true);
@@ -131,6 +171,13 @@ else console.log(JSON.stringify({ ok: true }));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@nextster --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
     assert.ok(!uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove nextster --json"));
+    const claudeUninstallCalls = (await readFile(claudeLogPath, "utf8")).trim().split("\n").map(JSON.parse).slice(claudeCalls.length);
+    assert.deepEqual(claudeUninstallCalls.map(args => args.join(" ")), [
+      "plugin uninstall chromium-bridge@nextster --scope user",
+      "plugin marketplace remove nextster"
+    ]);
+    assert.equal(JSON.parse(await readFile(desktopConfigPath, "utf8")).mcpServers, undefined);
+    assert.deepEqual(uninstall.claudeDesktop.configs.map(item => item.action), ["removed"]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -142,6 +189,7 @@ test("setup automatically selects Store mode when an extension id is supplied", 
     path.join(projectDir, "scripts", "setup.mjs"),
     "--dry-run",
     "--no-codex",
+    "--no-claude",
     "--no-open",
     "--extension-id",
     storeId
@@ -162,6 +210,7 @@ test("source setup preserves the previous unpacked extension path as a symlink",
       path.join(projectDir, "scripts", "setup.mjs"),
       "--source",
       "--no-codex",
+      "--no-claude",
       "--no-open"
     ], { env: { ...process.env, HOME: home } });
     const result = JSON.parse(stdout);
@@ -188,6 +237,7 @@ test("setup can refresh runtime and Codex without touching an existing developme
       "--host-only",
       "--no-extension",
       "--no-codex",
+      "--no-claude",
       "--no-open",
       "--no-wait"
     ], { env: { ...process.env, HOME: home } });

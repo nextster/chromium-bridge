@@ -1,6 +1,6 @@
 # Chromium Bridge
 
-Chromium Bridge connects user-authorized local tools to the Chromium browser session you already use. The repository contains a Manifest V3 extension, a macOS Native Messaging host, a CLI, and a Codex MCP plugin.
+Chromium Bridge connects user-authorized local tools to the Chromium browser session you already use. The repository contains a Manifest V3 extension, a Native Messaging host for macOS and Windows, a CLI, and an MCP plugin for Codex, Claude Code, and Claude Desktop.
 
 The portable extension core handles tabs, compact page snapshots, interactions, user-supplied scripts, screenshots, optional cookies, and filtered network capture. Browser-specific providers stay separate; the included Arc provider can list and focus Spaces on macOS.
 
@@ -12,7 +12,7 @@ The portable extension core handles tabs, compact page snapshots, interactions, 
 - Persistent scripts are stored locally, limited to explicit `http://` and `https://` match patterns, and registered only under Chromium Bridge's private script namespace. Revoking browser consent unregisters them without deleting their records.
 - The extension makes no requests to a developer-operated server. It sends requested data to the user-installed local host through Chromium Native Messaging.
 - Local clients, including AI tools, decide how tool output is processed and may use third-party services. Review their privacy settings before exposing sensitive pages.
-- Native Messaging origins are allowlisted, the host verifies the caller origin, and local sockets and captures are owner-only.
+- Native Messaging origins are allowlisted, the host verifies the caller origin, and captures are owner-only. On macOS local clients use an owner-only Unix socket; on Windows they use a named pipe that requires a mutual challenge-response with a per-session secret from the user's profile.
 
 Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before using raw cookie or capture modes.
 
@@ -20,27 +20,37 @@ Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before using raw co
 
 Requirements:
 
-- macOS
-- Arc, Chrome, Chromium, Brave, Edge, or Vivaldi based on Chrome 138 or newer
-- Codex desktop app or CLI. The installer detects `codex` in `PATH` and the CLI bundled inside `ChatGPT.app` or `Codex.app`.
+- macOS or Windows 10/11
+- Arc (macOS), Chrome, Chromium, Brave, Edge, or Vivaldi based on Chrome 138 or newer
+- At least one agent client: Codex (desktop app or CLI), Claude Code (CLI or the Code tab of the Claude desktop app), or Claude Desktop
 
-Run:
+On macOS, run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh
+```
+
+On Windows, run in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.ps1 | iex
 ```
 
 The installer opens the [Unlisted Chrome Web Store listing](https://chromewebstore.google.com/detail/chromium-bridge/lgfjelplnddfhmjjbhmmmmiglbgkeilb). Chromium requires one explicit **Add to browser** confirmation; approve local browser access in the extension popup and enable **Allow User Scripts** when prompted.
 
 The installer:
 
-1. Uses an existing Node.js 20+ runtime, or installs a pinned and SHA-256-verified Node.js runtime under `~/.chromium-bridge`.
-2. Installs the Native Messaging host and CLI for supported Chromium browsers.
-3. Adds Chromium Bridge to the shared Nextster marketplace under `~/.codex/marketplaces/nextster` and registers `chromium-bridge@nextster`.
+1. Uses an existing Node.js 20+ runtime, or installs a pinned and SHA-256-verified Node.js runtime under `~/.chromium-bridge` (`%USERPROFILE%\.chromium-bridge` on Windows).
+2. Installs the Native Messaging host, CLI, and MCP server runtime for supported Chromium browsers. macOS uses per-browser manifest files; Windows uses per-user `HKCU` registry keys for Chrome, Chromium, Brave, Edge, and Vivaldi.
+3. Registers every detected agent client:
+   - Codex and Claude Code install `chromium-bridge@nextster` from the shared local marketplace in `~/.agent-plugins/nextster`. The Claude Code registration also covers the Code tab of the Claude desktop app.
+   - Claude Desktop gets a `chromium-bridge` entry in `mcpServers` of `claude_desktop_config.json`. Other settings are preserved and the previous file is kept as `claude_desktop_config.json.chromium-bridge-backup`.
 4. Opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
 5. Reports readiness after the browser bridge answers a live status check.
 
-No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. Start a new Codex task after first installation so it loads the plugin; restarting the app is not required.
+No administrator access, Homebrew, global npm package, HTTP server, or permanent source checkout is required. After the first installation, start a new Codex task or Claude Code session, or restart Claude Desktop, so the client loads Chromium Bridge. Claude Desktop receives the MCP tools only; the routing skill is available in Codex and Claude Code.
+
+Use `--no-codex`, `--no-claude-code`, `--no-claude-desktop`, or `--no-claude` (both Claude clients) to skip a client.
 
 To inspect the installer before running it:
 
@@ -48,6 +58,12 @@ To inspect the installer before running it:
 curl -fsSLo chromium-bridge-install.sh https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh
 less chromium-bridge-install.sh
 sh chromium-bridge-install.sh
+```
+
+On Windows, options are passed through a script block:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.ps1))) --no-claude-desktop
 ```
 
 The equivalent development installation is:
@@ -58,7 +74,7 @@ cd chromium-bridge
 npm run setup -- --source
 ```
 
-The setup command copies the unpacked extension and native runtime under `~/.chromium-bridge`, registers the Native Messaging host, and installs the local Codex plugin.
+The setup command copies the unpacked extension and native runtime under `~/.chromium-bridge`, registers the Native Messaging host, and registers the detected agent clients.
 
 For a source build, complete these browser steps once:
 
@@ -66,19 +82,23 @@ For a source build, complete these browser steps once:
 2. Choose **Load unpacked** and select `~/.chromium-bridge/extension`.
 3. Open the Chromium Bridge popup and approve local browser access.
 4. Open the extension details and enable **Allow User Scripts**.
-5. Reload Codex after the plugin is installed.
+5. Start a new agent session after the plugin is installed.
 
-Run the one-command installer again to update installed components. Useful options are `--no-open`, `--no-wait`, `--no-codex`, and `--dry-run`. Set `CHROMIUM_BRIDGE_REF=main` only when intentionally testing the unreleased development branch.
+Run the one-command installer again to update installed components. Useful options are `--no-open`, `--no-wait`, `--no-codex`, `--no-claude`, and `--dry-run`. Set `CHROMIUM_BRIDGE_REF=main` only when intentionally testing the unreleased development branch. Both installers also accept `CHROMIUM_BRIDGE_SOURCE_DIR` pointing at a local checkout instead of downloading a release.
+
+### Shared agent plugin marketplace
+
+`~/.agent-plugins/nextster` is a local plugin marketplace shared by Codex and Claude Code and by the Nextster bridges that use it. It contains a Codex manifest (`.agents/plugins/marketplace.json`), a Claude Code manifest (`.claude-plugin/marketplace.json`), a `README.md`, and one directory per plugin. Installers replace only their own plugin entry. Earlier releases kept a Codex-only copy under `~/.codex/marketplaces/nextster`; the installer moves it, including other bridges' plugins, and re-points the Codex marketplace. Set `NEXTSTER_MARKETPLACE_DIR` to use another location.
 
 ### Migrating from Load unpacked
 
 Run the normal installation command. The installer refreshes the managed unpacked copy, verifies that the connected extension has the development ID, removes only that development extension, and opens the Store listing. Chromium still requires one explicit **Add to browser** confirmation. The installer then waits for the exact Store ID, new popup consent, and Allow User Scripts before deleting the obsolete local extension files.
 
-An unpacked extension loaded directly from an arbitrary source checkout may be too old for automatic removal. In that case, remove that one development extension from the browser extensions page and rerun the installer; the Native Messaging host, Codex plugin, and captures remain intact.
+An unpacked extension loaded directly from an arbitrary source checkout may be too old for automatic removal. In that case, remove that one development extension from the browser extensions page and rerun the installer; the Native Messaging host, agent client registrations, and captures remain intact.
 
 ## Store installation
 
-The Chrome Web Store can distribute only the extension. The Native Messaging host and Codex plugin remain a separate local companion because browser stores cannot install native executables.
+The Chrome Web Store can distribute only the extension. The Native Messaging host and agent plugins remain a separate local companion because browser stores cannot install native executables.
 
 The normal one-command installer uses Store mode. An explicit host-only installation remains available when the extension is already installed:
 
@@ -95,7 +115,7 @@ brew install nextster/tap/chromium-bridge
 chromium-bridge setup
 ```
 
-`brew install` installs the versioned companion and its Node.js dependency. The explicit `setup` command registers the Native Messaging host for supported browsers, installs the Codex plugin, opens the Store listing, and performs the same readiness check as the curl installer.
+`brew install` installs the versioned companion and its Node.js dependency. The explicit `setup` command registers the Native Messaging host for supported browsers, registers the detected agent clients, opens the Store listing, and performs the same readiness check as the curl installer.
 
 Upgrade and re-register the installed companion with:
 
@@ -105,7 +125,7 @@ brew upgrade chromium-bridge
 chromium-bridge setup
 ```
 
-Before removing the Formula, unregister the companion and Codex plugin:
+Before removing the Formula, unregister the companion and agent plugins:
 
 ```bash
 chromium-bridge uninstall
@@ -120,17 +140,23 @@ For curl installations, update by running the installation command again, or exp
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh -s -- update
 ```
 
-Remove the native host, CLI, development extension copy, portable runtime, and Codex plugin registration while preserving captures:
+Remove the native host, CLI, development extension copy, portable runtime, and agent client registrations while preserving captures:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.sh | sh -s -- uninstall
+```
+
+On Windows:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.ps1))) uninstall
 ```
 
 Add `--purge` to delete captures and all remaining `~/.chromium-bridge` data. The browser opens its extensions page because Chromium requires the user to remove the browser extension explicitly.
 
 ## What it exposes
 
-The Codex MCP server provides:
+The MCP server provides:
 
 - Browser status and provider discovery
 - Tab listing, background tab creation, navigation, and guarded cleanup
@@ -146,7 +172,7 @@ Agent-created tabs open in the background by default and are tracked for cleanup
 
 ## CLI
 
-The installer places the CLI at `~/.chromium-bridge/bin/chromium-bridge`:
+The installer places the CLI at `~/.chromium-bridge/bin/chromium-bridge` (`%USERPROFILE%\.chromium-bridge\bin\chromium-bridge.cmd` on Windows):
 
 ```bash
 ~/.chromium-bridge/bin/chromium-bridge status
@@ -190,18 +216,21 @@ Disabling a script retains its canonical record but unregisters it. Removing a s
 ## Architecture
 
 ```text
-Codex plugin or CLI
+Codex, Claude Code, Claude Desktop, or CLI
         |
-        | NDJSON RPC over ~/.chromium-bridge/control.sock (0600)
+        | MCP stdio -> ~/.chromium-bridge/runtime/mcp-server.mjs
+        | NDJSON RPC over the control endpoint:
+        |   macOS:   ~/.chromium-bridge/control.sock (0600)
+        |   Windows: \\.\pipe\chromium-bridge-<id> with HMAC challenge-response
         v
 Native Messaging host <-> Chromium Bridge extension <-> Chromium APIs
         |
-        +-> optional providers, including Arc Spaces through JXA
+        +-> optional providers, including Arc Spaces through JXA on macOS
 ```
 
-There is no HTTP server or listening TCP port. Chromium launches the native host over stdin/stdout; local clients use a private Unix socket.
+There is no HTTP server or listening TCP port. Chromium launches the native host over stdin/stdout; local clients use a private Unix socket on macOS or an authenticated named pipe on Windows.
 
-Node.js runs the Native Messaging host, CLI, installer, tests, and Codex MCP server. It is not a web server and does not expose a network port. The installer uses a compatible system Node.js or a private verified runtime; it does not install Node globally.
+Node.js runs the Native Messaging host, CLI, installer, tests, and MCP server. It is not a web server and does not expose a network port. The installer uses a compatible system Node.js or a private verified runtime; it does not install Node globally. Every client launches the MCP server from the stable runtime directory by absolute path, so plugin caches and client working directories do not matter.
 
 ## Store release
 
@@ -240,9 +269,9 @@ npm run package:source
 npm run dev:unlink
 ```
 
-`npm run dev:link` performs the one-time Codex registration needed for the stable runtime bootstrap, then records the canonical path of the current checkout in an owner-only local pointer. Future MCP, CLI, and Native Messaging processes load their fixed entrypoints from that checkout, while ordinary setup and release packages continue to use the copied, versioned bundled runtime. Repeating `dev:link` for the same checkout is idempotent and does not remove or add the plugin again.
+`npm run dev:link` performs the one-time client registration needed for the stable runtime bootstrap, then records the canonical path of the current checkout in an owner-only local pointer. Future MCP, CLI, and Native Messaging processes load their fixed entrypoints from that checkout, while ordinary setup and release packages continue to use the copied, versioned bundled runtime. Repeating `dev:link` for the same checkout is idempotent and does not remove or add the plugin again.
 
-The normal loop is: edit source, run tests, run `npm run bridge -- extension-reload` when extension or native-host code changed, then open a new Codex task. A new task is required after MCP tool-list or schema changes because MCP capabilities are fixed at `initialize`; already-open tasks are not hot-reloaded. Use `npm run dev:status` to compare the repository, installed plugin, configured and effective MCP entrypoint/cwd, bundled native runtime, current native-host process, and development pointer. `npm run dev:unlink` removes only that pointer and returns future processes to the installed bundled runtime.
+The normal loop is: edit source, run tests, run `npm run bridge -- extension-reload` when extension or native-host code changed, then open a new agent session. A new session is required after MCP tool-list or schema changes because MCP capabilities are fixed at `initialize`; already-open sessions are not hot-reloaded. Use `npm run dev:status` to compare the repository, installed Codex and Claude Code plugins, configured and effective MCP entrypoint, bundled native runtime, current native-host process, and development pointer. `npm run dev:unlink` removes only that pointer and returns future processes to the installed bundled runtime.
 
 Moving or deleting a linked checkout makes the pointer invalid instead of silently executing another path. Run `npm run dev:link` from the new checkout location to repair it. Running ordinary `npm run setup` also clears development mode before refreshing the bundled installation.
 

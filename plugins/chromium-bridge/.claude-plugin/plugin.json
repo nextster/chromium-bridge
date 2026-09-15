@@ -1,0 +1,12 @@
+{
+  "name": "chromium-bridge",
+  "version": "0.6.9",
+  "description": "Control an authenticated Chromium browser through a local Native Messaging bridge.",
+  "author": {
+    "name": "Artem"
+  },
+  "homepage": "https://github.com/nextster/chromium-bridge",
+  "repository": "https://github.com/nextster/chromium-bridge",
+  "license": "MIT",
+  "keywords": ["browser", "chromium", "automation", "native-messaging"]
+}

@@ -16,7 +16,10 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const hostPath = path.resolve(testDir, "../src/host.mjs");
 const cliPath = path.resolve(testDir, "../src/cli.mjs");
 
-test("native host bridges CLI commands and records replayable events", { timeout: 15000 }, async () => {
+test("native host bridges CLI commands and records replayable events", {
+  timeout: 15000,
+  skip: process.platform === "win32" && "uses an unauthenticated Unix socket"
+}, async () => {
   const temporaryDir = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-host-test-"));
   const stateDir = path.join(temporaryDir, "state");
   const socketPath = path.join(stateDir, "control.sock");

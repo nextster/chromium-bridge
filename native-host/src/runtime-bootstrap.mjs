@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { realpathSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
@@ -8,14 +9,14 @@ export const DEV_LINK_SCHEMA_VERSION = 1;
 export const DEV_LINK_FILE = "dev-link.json";
 
 const ENTRYPOINTS = Object.freeze({
-  mcp: "plugins/chromium-bridge/mcp/server.mjs",
+  mcp: "native-host/src/mcp-server.mjs",
   cli: "native-host/src/cli.mjs",
   "native-host": "native-host/src/host.mjs"
 });
 
 const currentFile = fileURLToPath(import.meta.url);
 
-if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+if (isMainModule()) {
   try {
     await launch(process.argv[2]);
   } catch (error) {
@@ -48,9 +49,11 @@ export async function resolveRuntime(kind, options = {}) {
     options.stateDir || process.env.CHROMIUM_BRIDGE_STATE_DIR || path.join(os.homedir(), ".chromium-bridge")
   );
   const pointerPath = path.join(stateDir, DEV_LINK_FILE);
-  const pointer = await readDevLink(pointerPath);
+  const pointer = await readDevLink(pointerPath, options);
   if (pointer) {
-    const checkoutRoot = await validateCheckout(pointer.checkoutRoot);
+    // Validate only the requested entrypoint so a runtime and checkout from
+    // adjacent releases still agree on the processes they both provide.
+    const checkoutRoot = await validateCheckout(pointer.checkoutRoot, { ...options, entrypoints: [relativeEntrypoint] });
     const entrypoint = await resolveContainedFile(checkoutRoot, relativeEntrypoint);
     return {
       source: "checkout",
@@ -58,14 +61,14 @@ export async function resolveRuntime(kind, options = {}) {
       pointerPath,
       checkoutRoot,
       entrypoint,
-      cwd: kind === "mcp" ? path.dirname(path.dirname(entrypoint)) : path.dirname(entrypoint)
+      cwd: path.dirname(entrypoint)
     };
   }
 
+  // Clients such as Claude Code ignore a configured cwd, so every bundled
+  // entrypoint lives next to this bootstrap and is resolved absolutely.
   const runtimeDir = path.resolve(options.runtimeDir || path.dirname(currentFile));
-  const fallback = kind === "mcp"
-    ? path.resolve(options.fallbackCwd || process.cwd(), "mcp", "server.mjs")
-    : path.join(runtimeDir, kind === "cli" ? "cli.mjs" : "host.mjs");
+  const fallback = path.join(runtimeDir, path.basename(relativeEntrypoint));
   await requireRegularFile(fallback, `bundled ${kind} entrypoint`);
   return {
     source: "bundled",
@@ -73,11 +76,14 @@ export async function resolveRuntime(kind, options = {}) {
     pointerPath,
     checkoutRoot: null,
     entrypoint: fallback,
-    cwd: kind === "mcp" ? path.dirname(path.dirname(fallback)) : path.dirname(fallback)
+    cwd: runtimeDir
   };
 }
 
-export async function readDevLink(pointerPath) {
+// Windows has no POSIX permission bits; the state directory and checkouts
+// inherit the user's profile ACL, so only ownership-independent checks apply.
+export async function readDevLink(pointerPath, options = {}) {
+  const platform = options.platform || process.platform;
   let metadata;
   try {
     metadata = await lstat(pointerPath);
@@ -91,7 +97,7 @@ export async function readDevLink(pointerPath) {
   if (typeof process.getuid === "function" && metadata.uid !== process.getuid()) {
     throw new Error(`Development pointer is not owned by the current user: ${pointerPath}`);
   }
-  if ((metadata.mode & 0o077) !== 0) {
+  if (platform !== "win32" && (metadata.mode & 0o077) !== 0) {
     throw new Error(`Development pointer permissions must be 0600: ${pointerPath}`);
   }
 
@@ -111,6 +117,7 @@ export async function readDevLink(pointerPath) {
 }
 
 export async function validateCheckout(checkoutRoot, options = {}) {
+  const platform = options.platform || process.platform;
   const requested = path.resolve(checkoutRoot);
   let canonical;
   try {
@@ -131,7 +138,7 @@ export async function validateCheckout(checkoutRoot, options = {}) {
   if (typeof process.getuid === "function" && metadata.uid !== process.getuid()) {
     throw new Error(`Linked checkout is not owned by the current user: ${canonical}`);
   }
-  if ((metadata.mode & 0o022) !== 0) {
+  if (platform !== "win32" && (metadata.mode & 0o022) !== 0) {
     throw new Error(`Linked checkout must not be group- or world-writable: ${canonical}`);
   }
   const packagePath = await resolveContainedFile(canonical, "package.json");
@@ -139,7 +146,7 @@ export async function validateCheckout(checkoutRoot, options = {}) {
   if (packageJson.name !== "chromium-bridge") {
     throw new Error(`Linked checkout is not Chromium Bridge: ${canonical}`);
   }
-  for (const relativeEntrypoint of Object.values(ENTRYPOINTS)) {
+  for (const relativeEntrypoint of options.entrypoints || Object.values(ENTRYPOINTS)) {
     await resolveContainedFile(canonical, relativeEntrypoint);
   }
   return canonical;
@@ -165,6 +172,17 @@ async function requireRegularFile(filePath, label) {
   });
   if (!metadata.isFile() || metadata.isSymbolicLink()) {
     throw new Error(`${label} must be a regular file: ${filePath}`);
+  }
+}
+
+// Node resolves the main module through symlinks and junctions, so compare
+// canonical paths instead of the launcher's literal argument.
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(currentFile);
+  } catch {
+    return false;
   }
 }
 

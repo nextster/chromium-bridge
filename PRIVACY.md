@@ -2,7 +2,7 @@
 
 Effective date: August 31, 2026
 
-Chromium Bridge is a user-operated browser automation bridge. This policy describes the extension, Native Messaging host, CLI, and bundled Codex plugin in this repository.
+Chromium Bridge is a user-operated browser automation bridge. This policy describes the extension, Native Messaging host, CLI, and bundled agent plugin for Codex, Claude Code, and Claude Desktop in this repository.
 
 ## Single purpose
 
@@ -46,7 +46,7 @@ Enabled managed scripts remain active across browser restarts. Revoking Chromium
 
 The managed scripts screen can ask the Native Messaging host to reveal Chromium Bridge's fixed local state directory in the operating system file manager. It cannot pass an arbitrary path, and script source remains stored in `chrome.storage.local`, not in that directory.
 
-When capture is started, the native host writes owner-only files under `~/.chromium-bridge/captures`. The append-only event log is capped at 256 MiB per host session by default, and the latest-event snapshot and in-memory retention are separately bounded. Capture files remain until the user deletes them.
+When capture is started, the native host writes owner-only files under `~/.chromium-bridge/captures` (`%USERPROFILE%\.chromium-bridge\captures` on Windows). The append-only event log is capped at 256 MiB per host session by default, and the latest-event snapshot and in-memory retention are separately bounded. Capture files remain until the user deletes them.
 
 Users can delete all capture sessions with:
 
@@ -58,9 +58,9 @@ Uninstalling the extension stops future access but does not silently delete capt
 
 ## Security
 
-Native Messaging manifests authorize explicit extension origins, and the host independently validates its caller origin. Local control sockets and capture directories use owner-only permissions. Secret headers, sensitive field names, URL credentials, and sensitive URL parameters are redacted by default. Capture inputs and stored events are size-limited.
+Native Messaging manifests authorize explicit extension origins, and the host independently validates its caller origin. The local control endpoint is an owner-only Unix socket on macOS and a named pipe protected by a per-session secret on Windows; capture directories are private to the user. Secret headers, sensitive field names, URL credentials, and sensitive URL parameters are redacted by default. Capture inputs and stored events are size-limited.
 
-No system can eliminate all risk. Any same-account process that the user authorizes to connect to the private control socket is inside Chromium Bridge's local trust boundary. Raw cookie and capture modes can expose active session credentials.
+No system can eliminate all risk. Any same-account process that the user authorizes to connect to the private control endpoint is inside Chromium Bridge's local trust boundary. Raw cookie and capture modes can expose active session credentials.
 
 ## User controls
 
@@ -73,7 +73,7 @@ Users can:
 - Stop capture at any time
 - Purge locally stored captures
 - List, inspect, disable, or remove Bridge-managed persistent scripts through the local CLI or connected tools
-- Remove the extension, native host, or Codex plugin
+- Remove the extension, native host, or agent client registrations
 
 ## Changes and contact
 

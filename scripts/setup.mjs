@@ -3,16 +3,31 @@ import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, rename, rm, symlink } from "node:fs/promises";
+import { renameWithRetry } from "../native-host/src/atomic-file.mjs";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import {
+  detachCodexMarketplace,
+  installSharedMarketplace,
+  restoreCodexMarketplace,
+  marketplaceLocations,
+  migrateLegacyMarketplace,
+  registerClaudeCode,
+  registerCodex
+} from "./agent-clients.mjs";
+import { findClaudeCli } from "./claude-cli.mjs";
+import { claudeDesktopLocations, registerClaudeDesktop } from "./claude-desktop.mjs";
 import { findCodexCli } from "./codex-cli.mjs";
-import { bridgeKind, storeReadinessStep } from "./store-migration.mjs";
+import { detectBrowser, openInBrowser } from "./platform.mjs";
+import { READY_STEP, bridgeKind, storeReadinessStep } from "./store-migration.mjs";
 
 const execFileAsync = promisify(execFile);
 const rawArgs = process.argv.slice(2);
 const args = new Set(rawArgs);
 const skipCodex = args.has("--no-codex");
+const skipClaudeCode = args.has("--no-claude") || args.has("--no-claude-code");
+const skipClaudeDesktop = args.has("--no-claude") || args.has("--no-claude-desktop");
 const skipOpen = args.has("--no-open");
 const skipExtension = args.has("--no-extension");
 const dryRun = args.has("--dry-run");
@@ -29,13 +44,7 @@ const stateDir = path.resolve(
 );
 const installedExtensionDir = path.join(stateDir, "extension");
 const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
-const installedMarketplaceDir = path.resolve(
-  process.env.NEXTSTER_MARKETPLACE_DIR || path.join(
-    process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
-    "marketplaces",
-    "nextster"
-  )
-);
+const marketplace = marketplaceLocations();
 const developmentLinkPath = path.join(stateDir, "dev-link.json");
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
 const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
@@ -47,8 +56,8 @@ const storeUrl = configuredStoreExtensionId
   ? `https://chromewebstore.google.com/detail/chromium-bridge/${configuredStoreExtensionId}`
   : "";
 
-if (process.platform !== "darwin" && !dryRun) {
-  throw new Error("The setup command currently supports macOS. The extension and MCP server are portable, but Native Messaging registration paths still need a platform installer.");
+if (!["darwin", "win32"].includes(process.platform) && !dryRun) {
+  throw new Error("Chromium Bridge setup supports macOS and Windows.");
 }
 if (Number(process.versions.node.split(".")[0]) < 20) {
   throw new Error(`Node.js 20 or newer is required; found ${process.version}`);
@@ -63,7 +72,7 @@ if (!dryRun && refreshDevelopmentExtension) {
   await rm(temporaryExtensionDir, { recursive: true, force: true });
   await cp(sourceExtensionDir, temporaryExtensionDir, { recursive: true });
   await rm(installedExtensionDir, { recursive: true, force: true });
-  await rename(temporaryExtensionDir, installedExtensionDir);
+  await renameWithRetry(temporaryExtensionDir, installedExtensionDir);
   if (migration.migrated && path.resolve(migration.from) === path.resolve(legacyStateDir)) {
     await mkdir(legacyStateDir, { recursive: true, mode: 0o700 });
     await rm(path.join(legacyStateDir, "extension"), { recursive: true, force: true });
@@ -78,39 +87,30 @@ const hostResult = await runJson(process.execPath, [
 ]);
 let extensionReload = { attempted: false, reloaded: false };
 if (!dryRun && refreshDevelopmentExtension) {
-  extensionReload = await reloadRunningExtension(hostResult.cliLauncherPath);
-}
-let codexResult = { skipped: true, reason: skipCodex ? "disabled by --no-codex" : "Codex CLI not found" };
-const codexPath = skipCodex ? null : await findCodexCli();
-if (codexPath) {
-  codexResult = dryRun
-    ? { skipped: true, reason: "dry run", command: codexPath }
-    : await installCodexPlugin(hostResult.nodePath, codexPath);
+  extensionReload = await reloadRunningExtension();
 }
 
-const browser = detectBrowser();
+const clients = await registerClients();
+
+const browser = await detectBrowser();
 if (!skipOpen && !dryRun && storeMode && browser) {
-  console.error(`Opening the Chromium Bridge Store listing in ${browser.application}...`);
-  await execFileAsync("/usr/bin/open", ["-a", browser.application, storeUrl]);
+  console.error(`Opening the Chromium Bridge Store listing in ${browser.name}...`);
+  await openInBrowser(browser, storeUrl);
 } else if (!skipOpen && !dryRun && !hostOnly && browser) {
-  await execFileAsync("/usr/bin/open", ["-a", browser.application, browser.extensionsUrl]);
+  await openInBrowser(browser, browser.extensionsUrl);
 }
 
 let readiness = null;
 if (!dryRun && storeMode && waitForBrowser) {
-  readiness = await waitUntilReady(
-    hostResult.cliLauncherPath,
-    waitSeconds(),
-    configuredStoreExtensionId,
-    hostResult.extensionId
-  );
+  readiness = await waitUntilReady(waitSeconds(), configuredStoreExtensionId, hostResult.extensionId);
 }
 const developmentCleanup = readiness?.ready
   ? await cleanupDevelopmentExtensionFiles()
   : { removed: false };
 
+const activate = activationStep(clients);
 const next = readiness?.ready
-  ? ["Chromium Bridge is ready. Start a new Codex task to use it."]
+  ? [`Chromium Bridge is ready.${activate ? ` ${activate}` : ""}`]
   : storeMode
   ? [
       `Install Chromium Bridge from ${storeUrl}`,
@@ -119,31 +119,26 @@ const next = readiness?.ready
         : []),
       "Approve local browser access in the onboarding page",
       "Enable Allow User Scripts in the extension details",
-      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the plugin"] : [])
+      ...(activate ? [activate] : [])
     ]
   : hostOnly
-  ? [
-      "Reload the store-installed Chromium Bridge extension",
-      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the updated plugin"] : [])
-    ]
+  ? ["Reload the store-installed Chromium Bridge extension", ...(activate ? [activate] : [])]
   : extensionReload.reloaded
-  ? [
-      "Chromium Bridge reloaded in the running browser",
-      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task to activate the updated plugin"] : [])
-    ]
+  ? ["Chromium Bridge reloaded in the running browser", ...(activate ? [activate] : [])]
   : [
       `Open ${browser?.extensionsUrl || "your browser's extensions page"}`,
       "Enable Developer mode",
       `Choose Load unpacked and select ${installedExtensionDir}`,
-      ...(!skipCodex && !codexResult.skipped ? ["Start a new Codex task after the plugin is installed"] : [])
+      ...(activate ? [activate] : [])
     ];
-if (!skipCodex && codexResult.reason === "Codex CLI not found") {
-  next.push("Install the Codex desktop app or CLI, then rerun this installer to register the plugin");
+if (clients.missingAll) {
+  next.push("Install Codex, Claude Code, or Claude Desktop, then rerun this installer to register Chromium Bridge");
 }
 
 console.log(JSON.stringify({
   installed: !dryRun,
   dryRun,
+  platform: process.platform,
   extensionPath: hostOnly ? null : installedExtensionDir,
   extensionId: hostResult.extensionId,
   storeExtensionId: configuredStoreExtensionId || null,
@@ -157,7 +152,10 @@ console.log(JSON.stringify({
     cli: hostResult.cliLauncherPath,
     node: hostResult.nodePath
   },
-  codex: codexResult,
+  marketplace: clients.marketplace,
+  codex: clients.codex,
+  claudeCode: clients.claudeCode,
+  claudeDesktop: clients.claudeDesktop,
   developmentLinkReset: !dryRun,
   migration,
   readiness,
@@ -165,40 +163,75 @@ console.log(JSON.stringify({
 }, null, 2));
 if (readiness && !readiness.ready) process.exitCode = 2;
 
-async function installCodexPlugin(nodePath, codexPath) {
-  const removedObsolete = [];
-  for (const command of [
-    ["plugin", "remove", "chromium-sidecar@chromium-sidecar", "--json"],
-    ["plugin", "marketplace", "remove", "chromium-sidecar", "--json"],
-    ["plugin", "remove", "chromium-bridge@chromium-bridge", "--json"],
-    ["plugin", "marketplace", "remove", "chromium-bridge", "--json"]
-  ]) {
-    removedObsolete.push(await runOptional(codexPath, command));
-  }
-  await installCodexMarketplace(nodePath);
-  const marketplaces = await runJson(codexPath, ["plugin", "marketplace", "list", "--json"]);
-  const existingMarketplace = marketplaces.marketplaces?.find(item => item.name === "nextster");
-  if (existingMarketplace && path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    throw new Error(`Codex marketplace nextster already points to ${existingMarketplace.root}; expected ${installedMarketplaceDir}`);
-  }
-  if (!existingMarketplace || path.resolve(existingMarketplace.root) !== installedMarketplaceDir) {
-    await execFileAsync(codexPath, ["plugin", "marketplace", "add", installedMarketplaceDir, "--json"]);
-  }
-
-  const plugins = await runJson(codexPath, ["plugin", "list", "--json"]);
-  const pluginId = "chromium-bridge@nextster";
-  if (plugins.installed?.some(item => item.pluginId === pluginId)) {
-    await execFileAsync(codexPath, ["plugin", "remove", pluginId, "--json"]);
-  }
-  const installed = await runJson(codexPath, ["plugin", "add", pluginId, "--json"]);
-  return {
-    skipped: false,
-    command: codexPath,
-    pluginId,
-    marketplaceRoot: installedMarketplaceDir,
-    removedObsolete,
-    installed
+async function registerClients() {
+  const codexPath = skipCodex ? null : await findCodexCli();
+  const claudePath = skipClaudeCode ? null : await findClaudeCli();
+  const desktop = skipClaudeDesktop ? null : await claudeDesktopLocations();
+  const result = {
+    marketplace: null,
+    codex: skipped(skipCodex ? "disabled by --no-codex" : "Codex CLI not found", codexPath),
+    claudeCode: skipped(skipClaudeCode ? "disabled by --no-claude-code" : "Claude Code CLI not found", claudePath),
+    claudeDesktop: skipped(skipClaudeDesktop ? "disabled by --no-claude-desktop" : "Claude Desktop not found"),
+    missingAll: !skipCodex && !skipClaudeCode && !skipClaudeDesktop && !codexPath && !claudePath && !desktop?.installed
   };
+
+  if (codexPath || claudePath) {
+    if (dryRun) {
+      result.marketplace = { root: marketplace.root, dryRun: true };
+    } else {
+      // The Codex-only legacy directory moves only when Codex can be re-pointed;
+      // otherwise its registration would lose the manifest it depends on.
+      const codexDetach = codexPath ? await detachCodexMarketplace({ codexPath, ...marketplace }) : null;
+      let migrated;
+      try {
+        migrated = codexPath
+          ? await migrateLegacyMarketplace(marketplace)
+          : { migrated: false, reason: "Codex CLI unavailable" };
+        await installSharedMarketplace({
+          root: marketplace.root,
+          projectDir,
+          nodePath: hostResult.nodePath,
+          bootstrapPath: hostResult.runtimeBootstrapPath
+        });
+      } catch (error) {
+        if (codexDetach?.detachedFrom || codexDetach?.recovered) await restoreCodexMarketplace({ codexPath, ...marketplace });
+        throw error;
+      }
+      result.marketplace = { root: marketplace.root, migration: migrated, codexDetach };
+    }
+  }
+  if (codexPath) {
+    result.codex = dryRun
+      ? { skipped: true, reason: "dry run", command: codexPath }
+      : await registerCodex({ codexPath, root: marketplace.root });
+  }
+  if (claudePath) {
+    result.claudeCode = dryRun
+      ? { skipped: true, reason: "dry run", command: claudePath }
+      : await registerClaudeCode({ claudePath, root: marketplace.root });
+  }
+  if (desktop?.installed) {
+    result.claudeDesktop = await registerClaudeDesktop({
+      nodePath: hostResult.nodePath,
+      bootstrapPath: hostResult.runtimeBootstrapPath,
+      dryRun
+    });
+  }
+  return result;
+}
+
+function skipped(reason, command) {
+  return { skipped: true, reason, ...(command ? { command } : {}) };
+}
+
+function activationStep(result) {
+  const steps = [];
+  if (!result.codex.skipped) steps.push("start a new Codex task");
+  if (!result.claudeCode.skipped) steps.push("start a new Claude Code session");
+  if (result.claudeDesktop.restartRequired) steps.push("restart Claude Desktop");
+  if (!steps.length) return "";
+  const sentence = steps.length > 1 ? `${steps.slice(0, -1).join(", ")} or ${steps.at(-1)}` : steps[0];
+  return `To use it, ${sentence}.`;
 }
 
 async function migrateLegacyState() {
@@ -238,44 +271,7 @@ async function migrateLegacyState() {
   };
 }
 
-async function installCodexMarketplace(nodePath) {
-  const pluginsDir = path.join(installedMarketplaceDir, "plugins");
-  const manifestDir = path.join(installedMarketplaceDir, ".agents", "plugins");
-  const destination = path.join(pluginsDir, "chromium-bridge");
-  const temporaryDir = path.join(pluginsDir, `.chromium-bridge.tmp-${process.pid}`);
-  await mkdir(pluginsDir, { recursive: true, mode: 0o700 });
-  await mkdir(manifestDir, { recursive: true, mode: 0o700 });
-  await rm(temporaryDir, { recursive: true, force: true });
-  await cp(path.join(projectDir, "plugins", "chromium-bridge"), temporaryDir, { recursive: true });
-  const mcpPath = path.join(temporaryDir, ".mcp.json");
-  const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8"));
-  mcpConfig.mcpServers["chromium-bridge"].command = nodePath;
-  mcpConfig.mcpServers["chromium-bridge"].args = [
-    path.join(stateDir, "runtime", "runtime-bootstrap.mjs"),
-    "mcp"
-  ];
-  await writeFile(mcpPath, `${JSON.stringify(mcpConfig, null, 2)}\n`, { mode: 0o600 });
-
-  await rm(destination, { recursive: true, force: true });
-  await rename(temporaryDir, destination);
-
-  const sourceMarketplace = JSON.parse(await readFile(path.join(projectDir, ".agents", "plugins", "marketplace.json"), "utf8"));
-  const entry = sourceMarketplace.plugins.find(item => item.name === "chromium-bridge");
-  if (sourceMarketplace.name !== "nextster" || !entry) throw new Error("Invalid Nextster marketplace source");
-  const manifestPath = path.join(manifestDir, "marketplace.json");
-  let marketplace = { name: "nextster", interface: { displayName: "Nextster" }, plugins: [] };
-  if (existsSync(manifestPath)) marketplace = JSON.parse(await readFile(manifestPath, "utf8"));
-  if (marketplace.name !== "nextster" || !Array.isArray(marketplace.plugins)) {
-    throw new Error(`Invalid shared marketplace at ${manifestPath}`);
-  }
-  marketplace.interface = { ...(marketplace.interface || {}), displayName: "Nextster" };
-  marketplace.plugins = [...marketplace.plugins.filter(item => item.name !== "chromium-bridge"), entry];
-  const temporaryManifest = `${manifestPath}.tmp-${process.pid}`;
-  await writeFile(temporaryManifest, `${JSON.stringify(marketplace, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporaryManifest, manifestPath);
-}
-
-async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, developmentExtensionId) {
+async function waitUntilReady(timeoutSeconds, storeExtensionId, developmentExtensionId) {
   console.error("Waiting for Store installation and browser approval...");
   const deadline = Date.now() + timeoutSeconds * 1000;
   let lastStep = "";
@@ -284,10 +280,10 @@ async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, develop
   let nextMigrationAttempt = 0;
   while (Date.now() < deadline) {
     try {
-      const status = await runJson(cliPath, ["status"], 7000);
+      const status = await runBridgeCli(["status"], 7000);
       const kind = bridgeKind(status, storeExtensionId, developmentExtensionId);
       if (kind === "development" && !migration.requested && Date.now() >= nextMigrationAttempt) {
-        migration = await requestDevelopmentUninstall(cliPath);
+        migration = await requestDevelopmentUninstall();
         nextMigrationAttempt = Date.now() + 5000;
         if (migration.requested) {
           console.error("Removed the unpacked development extension; waiting for the Store version...");
@@ -300,7 +296,7 @@ async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, develop
         console.error(step);
         lastStep = step;
       }
-      if (step === "Browser and Codex bridge are ready.") {
+      if (step === READY_STEP) {
         return { ready: true, checkedAt: new Date().toISOString(), status, migration };
       }
     } catch (error) {
@@ -318,13 +314,9 @@ async function waitUntilReady(cliPath, timeoutSeconds, storeExtensionId, develop
   };
 }
 
-async function requestDevelopmentUninstall(cliPath) {
+async function requestDevelopmentUninstall() {
   try {
-    const result = await runJson(
-      cliPath,
-      ["command", "runtime.uninstallDevelopment", "{}"],
-      5000
-    );
+    const result = await runBridgeCli(["command", "runtime.uninstallDevelopment", "{}"], 5000);
     if (result.uninstalling) return { requested: true, result };
     return { requested: false, refused: true, result };
   } catch (error) {
@@ -353,10 +345,10 @@ async function cleanupDevelopmentExtensionFiles() {
   return { removed: removed.length > 0, paths: removed };
 }
 
-async function reloadRunningExtension(cliPath) {
+async function reloadRunningExtension() {
   try {
-    const { stdout } = await execFileAsync(cliPath, ["extension-reload"], { timeout: 3000 });
-    return { attempted: true, reloaded: JSON.parse(stdout).reloading === true };
+    const result = await runBridgeCli(["extension-reload"], 3000);
+    return { attempted: true, reloaded: result.reloading === true };
   } catch (error) {
     return {
       attempted: true,
@@ -366,45 +358,19 @@ async function reloadRunningExtension(cliPath) {
   }
 }
 
-function detectBrowser() {
-  const candidates = [
-    { application: "Arc", extensionsUrl: "arc://extensions", path: "/Applications/Arc.app" },
-    { application: "Google Chrome", extensionsUrl: "chrome://extensions", path: "/Applications/Google Chrome.app" },
-    { application: "Brave Browser", extensionsUrl: "brave://extensions", path: "/Applications/Brave Browser.app" },
-    { application: "Microsoft Edge", extensionsUrl: "edge://extensions", path: "/Applications/Microsoft Edge.app" },
-    { application: "Vivaldi", extensionsUrl: "vivaldi://extensions", path: "/Applications/Vivaldi.app" },
-    { application: "Chromium", extensionsUrl: "chrome://extensions", path: "/Applications/Chromium.app" }
-  ];
-  return candidates.find(candidate => existsSync(candidate.path));
+// Invoke the installed CLI through node directly: Windows launchers are .cmd
+// files, which Node cannot execute without a shell.
+function runBridgeCli(commandArgs, timeout) {
+  return runJson(hostResult.nodePath, [hostResult.runtimeBootstrapPath, "cli", ...commandArgs], timeout);
 }
 
 async function runJson(command, commandArgs, timeout) {
   const { stdout } = await execFileAsync(command, commandArgs, {
     maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
     ...(timeout ? { timeout } : {})
   });
   return JSON.parse(stdout);
-}
-
-async function runOptional(command, commandArgs) {
-  try {
-    const { stdout } = await execFileAsync(command, commandArgs);
-    return { command: commandArgs, removed: true, output: parseJson(stdout) };
-  } catch (error) {
-    return {
-      command: commandArgs,
-      removed: false,
-      reason: String(error?.stderr || error?.message || error).trim()
-    };
-  }
-}
-
-function parseJson(value) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return String(value || "").trim();
-  }
 }
 
 async function readStoreExtensionId() {

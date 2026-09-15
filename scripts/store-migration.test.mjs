@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bridgeKind, storeReadinessStep } from "./store-migration.mjs";
+import { READY_STEP, bridgeKind, storeReadinessStep } from "./store-migration.mjs";
 
 const storeId = "store-id";
 const developmentId = "development-id";
@@ -31,7 +31,7 @@ test("Store readiness accepts only a fully approved Store extension", () => {
   assert.equal(bridgeKind(status(storeId), storeId, developmentId), "store");
   assert.equal(
     storeReadinessStep(status(storeId), storeId, developmentId),
-    "Browser and Codex bridge are ready."
+    READY_STEP
   );
   assert.equal(
     storeReadinessStep(status(storeId, { userScriptsAvailable: false }), storeId, developmentId),

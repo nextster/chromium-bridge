@@ -19,24 +19,25 @@ test("runtime bootstrap selects fixed checkout entrypoints and bundled fallback"
   const root = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-bootstrap-"));
   const checkout = path.join(root, "checkout");
   const state = path.join(root, "state");
-  const bundledPlugin = path.join(root, "bundled-plugin");
+  const runtimeDir = path.join(root, "runtime");
   await makeCheckout(checkout);
   await mkdir(state, { recursive: true, mode: 0o700 });
-  await mkdir(path.join(bundledPlugin, "mcp"), { recursive: true });
-  await writeFile(path.join(bundledPlugin, "mcp", "server.mjs"), "export {};\n");
+  await mkdir(runtimeDir, { recursive: true });
+  await writeFile(path.join(runtimeDir, "mcp-server.mjs"), "export {};\n");
 
   try {
-    const fallback = await resolveRuntime("mcp", { stateDir: state, fallbackCwd: bundledPlugin });
+    const fallback = await resolveRuntime("mcp", { stateDir: state, runtimeDir });
     assert.equal(fallback.source, "bundled");
-    assert.equal(fallback.entrypoint, path.join(bundledPlugin, "mcp", "server.mjs"));
+    assert.equal(fallback.entrypoint, path.join(runtimeDir, "mcp-server.mjs"));
+    assert.equal(fallback.cwd, runtimeDir);
 
     const canonicalCheckout = await realpath(checkout);
     await writePointer(state, canonicalCheckout);
-    const mcp = await resolveRuntime("mcp", { stateDir: state, fallbackCwd: bundledPlugin });
+    const mcp = await resolveRuntime("mcp", { stateDir: state, runtimeDir });
     const nativeHost = await resolveRuntime("native-host", { stateDir: state });
     assert.equal(mcp.source, "checkout");
-    assert.equal(mcp.entrypoint, path.join(canonicalCheckout, "plugins", "chromium-bridge", "mcp", "server.mjs"));
-    assert.equal(mcp.cwd, path.join(canonicalCheckout, "plugins", "chromium-bridge"));
+    assert.equal(mcp.entrypoint, path.join(canonicalCheckout, "native-host", "src", "mcp-server.mjs"));
+    assert.equal(mcp.cwd, path.join(canonicalCheckout, "native-host", "src"));
     assert.equal(nativeHost.entrypoint, path.join(canonicalCheckout, "native-host", "src", "host.mjs"));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -52,7 +53,7 @@ test("runtime bootstrap launches the linked MCP entrypoint with checkout metadat
   const canonicalCheckout = await realpath(checkout);
   await writePointer(state, canonicalCheckout);
   await writeFile(
-    path.join(checkout, "plugins", "chromium-bridge", "mcp", "server.mjs"),
+    path.join(checkout, "native-host", "src", "mcp-server.mjs"),
     "console.log(JSON.stringify({ source: process.env.CHROMIUM_BRIDGE_ACTIVE_SOURCE, entrypoint: process.env.CHROMIUM_BRIDGE_ACTIVE_ENTRYPOINT, checkout: process.env.CHROMIUM_BRIDGE_ACTIVE_CHECKOUT, cwd: process.cwd() }));\n"
   );
   try {
@@ -62,14 +63,16 @@ test("runtime bootstrap launches the linked MCP entrypoint with checkout metadat
     const result = JSON.parse(stdout);
     assert.equal(result.source, "checkout");
     assert.equal(result.checkout, canonicalCheckout);
-    assert.equal(result.entrypoint, path.join(canonicalCheckout, "plugins", "chromium-bridge", "mcp", "server.mjs"));
-    assert.equal(result.cwd, path.join(canonicalCheckout, "plugins", "chromium-bridge"));
+    assert.equal(result.entrypoint, path.join(canonicalCheckout, "native-host", "src", "mcp-server.mjs"));
+    assert.equal(result.cwd, path.join(canonicalCheckout, "native-host", "src"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("runtime bootstrap rejects missing, moved, and insecure checkout pointers", async () => {
+test("runtime bootstrap rejects missing, moved, and insecure checkout pointers", {
+  skip: process.platform === "win32" && "relies on POSIX permission bits"
+}, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-bootstrap-invalid-"));
   const state = path.join(root, "state");
   const checkout = path.join(root, "checkout");
@@ -89,17 +92,18 @@ test("runtime bootstrap rejects missing, moved, and insecure checkout pointers",
     await writePointer(state, await realpath(moved));
     await chmod(path.join(state, "dev-link.json"), 0o644);
     await assert.rejects(resolveRuntime("cli", { stateDir: state }), /permissions must be 0600/);
+    const windows = await resolveRuntime("cli", { stateDir: state, platform: "win32" });
+    assert.equal(windows.source, "checkout");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
 async function makeCheckout(root) {
-  await mkdir(path.join(root, "plugins", "chromium-bridge", "mcp"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(root, "native-host", "src"), { recursive: true, mode: 0o700 });
   await chmod(root, 0o700);
   await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "chromium-bridge", version: "9.9.9" }));
-  await writeFile(path.join(root, "plugins", "chromium-bridge", "mcp", "server.mjs"), "export {};\n");
+  await writeFile(path.join(root, "native-host", "src", "mcp-server.mjs"), "export {};\n");
   await writeFile(path.join(root, "native-host", "src", "cli.mjs"), "export {};\n");
   await writeFile(path.join(root, "native-host", "src", "host.mjs"), "export {};\n");
 }

@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("shell installer verifies and installs its portable Node fallback", async () => {
+test("shell installer verifies and installs its portable Node fallback", {
+  skip: process.platform === "win32" && "install.sh is the macOS installer"
+}, async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-shell-install-"));
   const nodeArch = process.arch === "arm64" ? "arm64" : "x64";
   const archiveRoot = path.join(home, `node-v24.19.0-darwin-${nodeArch}`);
@@ -31,6 +33,7 @@ test("shell installer verifies and installs its portable Node fallback", async (
       "--dry-run",
       "--source",
       "--no-codex",
+      "--no-claude",
       "--no-open"
     ], {
       env: {
@@ -71,6 +74,7 @@ test("shell installer migrates the previous state directory before selecting Nod
       path.join(projectDir, "install.sh"),
       "--host-only",
       "--no-codex",
+      "--no-claude",
       "--no-open",
       "--no-wait"
     ], {

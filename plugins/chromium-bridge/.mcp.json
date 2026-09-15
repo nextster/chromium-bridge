@@ -2,8 +2,7 @@
   "mcpServers": {
     "chromium-bridge": {
       "command": "node",
-      "args": ["./mcp/server.mjs"],
-      "cwd": "."
+      "args": ["${HOME}/.chromium-bridge/runtime/runtime-bootstrap.mjs", "mcp"]
     }
   }
 }
