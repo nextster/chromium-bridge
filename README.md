@@ -36,6 +36,8 @@ On Windows, run in PowerShell:
 irm https://raw.githubusercontent.com/nextster/chromium-bridge/main/install.ps1 | iex
 ```
 
+To let Codex or Claude Code install it for you, open [nextster.dev/chromium-bridge](https://nextster.dev/chromium-bridge), or ask the agent to follow [INSTALL.md](INSTALL.md).
+
 The installer opens the [Unlisted Chrome Web Store listing](https://chromewebstore.google.com/detail/chromium-bridge/lgfjelplnddfhmjjbhmmmmiglbgkeilb). Chromium requires one explicit **Add to browser** confirmation; approve local browser access in the extension popup and enable **Allow User Scripts** when prompted.
 
 The installer:

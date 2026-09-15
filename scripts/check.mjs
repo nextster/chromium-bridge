@@ -41,6 +41,15 @@ const windowsInstaller = await readFile(path.join(projectDir, "install.ps1"), "u
 if (!windowsInstaller.includes(`$ref = if ($env:CHROMIUM_BRIDGE_REF) { $env:CHROMIUM_BRIDGE_REF } else { '${releaseTag}' }`)) {
   throw new Error(`install.ps1 default ref does not match ${releaseTag}`);
 }
+const storeItem = await readJson("store/item.json");
+const agentInstructions = await readFile(path.join(projectDir, "INSTALL.md"), "utf8");
+for (const required of [
+  `chromewebstore.google.com/detail/chromium-bridge/${storeItem.extensionId}`,
+  "install.sh | sh -s -- --no-open --no-wait",
+  "install.ps1))) --no-open --no-wait"
+]) {
+  if (!agentInstructions.includes(required)) throw new Error(`INSTALL.md is missing ${required}`);
+}
 const nodeVersion = installer.match(/^node_version="([0-9.]+)"$/m)?.[1];
 if (!nodeVersion || !windowsInstaller.includes(`$nodeVersion = '${nodeVersion}'`)) {
   throw new Error("install.sh and install.ps1 must pin the same Node.js version");
