@@ -8,11 +8,10 @@ import { renameWithRetry } from "../native-host/src/atomic-file.mjs";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
-  detachCodexMarketplace,
   installSharedMarketplace,
-  restoreCodexMarketplace,
   marketplaceLocations,
   migrateLegacyMarketplace,
+  recoverCodexMarketplace,
   registerClaudeCode,
   registerCodex
 } from "./agent-clients.mjs";
@@ -179,25 +178,15 @@ async function registerClients() {
     if (dryRun) {
       result.marketplace = { root: marketplace.root, dryRun: true };
     } else {
-      // The Codex-only legacy directory moves only when Codex can be re-pointed;
-      // otherwise its registration would lose the manifest it depends on.
-      const codexDetach = codexPath ? await detachCodexMarketplace({ codexPath, ...marketplace }) : null;
-      let migrated;
-      try {
-        migrated = codexPath
-          ? await migrateLegacyMarketplace(marketplace)
-          : { migrated: false, reason: "Codex CLI unavailable" };
-        await installSharedMarketplace({
-          root: marketplace.root,
-          projectDir,
-          nodePath: hostResult.nodePath,
-          bootstrapPath: hostResult.runtimeBootstrapPath
-        });
-      } catch (error) {
-        if (codexDetach?.detachedFrom || codexDetach?.recovered) await restoreCodexMarketplace({ codexPath, ...marketplace });
-        throw error;
-      }
-      result.marketplace = { root: marketplace.root, migration: migrated, codexDetach };
+      const codexRecovery = codexPath ? await recoverCodexMarketplace({ codexPath }) : null;
+      const migrated = await migrateLegacyMarketplace(marketplace);
+      await installSharedMarketplace({
+        root: marketplace.root,
+        projectDir,
+        nodePath: hostResult.nodePath,
+        bootstrapPath: hostResult.runtimeBootstrapPath
+      });
+      result.marketplace = { root: marketplace.root, migration: migrated, codexRecovery };
     }
   }
   if (codexPath) {

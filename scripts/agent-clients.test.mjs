@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import {
   marketplaceLocations,
   migrateLegacyMarketplace,
-  detachCodexMarketplace,
+  recoverCodexMarketplace,
   registerClaudeCode,
   registerCodex,
   releaseClaudeMarketplace,
+  removeCompatLink,
   removeFromSharedMarketplace
 } from "./agent-clients.mjs";
 
@@ -38,7 +39,7 @@ test("legacy marketplace copies of other plugins replace shared copies", async (
 
     const result = await migrateLegacyMarketplace({ root: shared, legacyRoot: legacy });
     assert.deepEqual(result.imported, ["figma-bridge"]);
-    await assert.rejects(access(legacy));
+    assert.equal(await readlink(legacy), shared);
     assert.equal(await readFile(path.join(shared, "plugins", "figma-bridge", "marker.txt"), "utf8"), "fresh");
     const manifest = JSON.parse(await readFile(path.join(shared, ".agents", "plugins", "marketplace.json"), "utf8"));
     assert.deepEqual(manifest.plugins.map(item => [item.name, item.version]), [["chromium-bridge", undefined], ["figma-bridge", "new"]]);
@@ -47,78 +48,91 @@ test("legacy marketplace copies of other plugins replace shared copies", async (
   }
 });
 
-test("Codex detaches the legacy marketplace, recovers from a lost root, and refuses unrelated roots", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-codex-repoint-"));
-  const shared = path.join(root, "shared");
-  const legacy = path.join(root, "legacy");
-  await mkdir(shared, { recursive: true });
-  await mkdir(legacy, { recursive: true });
+test("legacy marketplace moves behind a link that keeps Codex and older installers working", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-market-link-"));
+  const shared = path.join(root, "agent-plugins", "nextster");
+  const legacy = path.join(root, "codex", "marketplaces", "nextster");
   try {
+    await writeManifest(legacy, [{ name: "telegram-bridge" }]);
+    const migrated = await migrateLegacyMarketplace({ root: shared, legacyRoot: legacy });
+    assert.equal(migrated.moved, true);
+    assert.equal(migrated.compatLink, legacy);
+    assert.equal((await lstat(legacy)).isSymbolicLink(), true);
+    assert.equal(await readlink(legacy), shared);
+    assert.match(await readFile(path.join(legacy, ".agents", "plugins", "marketplace.json"), "utf8"), /telegram-bridge/);
+
+    const again = await migrateLegacyMarketplace({ root: shared, legacyRoot: legacy });
+    assert.deepEqual(again, { migrated: false, compatLink: legacy });
+
     const calls = [];
-    const detached = await detachCodexMarketplace({
+    const result = await registerCodex({
       codexPath: "codex",
       root: shared,
-      legacyRoot: legacy,
-      run: fakeRun(calls, { "plugin marketplace list --json": { marketplaces: [{ name: "nextster", root: legacy }] } })
-    });
-    assert.deepEqual(detached, { detachedFrom: legacy, recovered: false });
-    assert.deepEqual(calls.map(args => args.join(" ")), [
-      "plugin marketplace list --json",
-      "plugin marketplace remove nextster --json"
-    ]);
-
-    let listed = 0;
-    const recoveryCalls = [];
-    const recovered = await detachCodexMarketplace({
-      codexPath: "codex",
-      root: shared,
-      legacyRoot: legacy,
-      run: async (command, args) => {
-        recoveryCalls.push(args.join(" "));
-        if (args.join(" ") === "plugin marketplace list --json" && listed++ === 0) {
-          throw Object.assign(new Error("failed"), {
-            stderr: `failed to load marketplace(s):\n- \`nextster\` at ${legacy}: marketplace root does not contain a supported manifest`
-          });
-        }
-        return { stdout: args.includes("list") ? JSON.stringify({ marketplaces: [] }) : "" };
-      }
-    });
-    assert.deepEqual(recovered, { detachedFrom: null, recovered: true });
-    assert.deepEqual(recoveryCalls, [
-      "plugin marketplace list --json",
-      "plugin marketplace remove nextster --json",
-      "plugin marketplace list --json"
-    ]);
-    const unrelated = [];
-    await assert.rejects(detachCodexMarketplace({
-      codexPath: "codex",
-      root: shared,
-      legacyRoot: legacy,
-      run: async (command, args) => {
-        unrelated.push(args.join(" "));
-        throw Object.assign(new Error("failed"), { stderr: "- `other` at /x: marketplace root does not contain a supported manifest" });
-      }
-    }), /failed/);
-    assert.deepEqual(unrelated, ["plugin marketplace list --json"]);
-
-    const registration = [];
-    await registerCodex({
-      codexPath: "codex",
-      root: shared,
-      run: fakeRun(registration, {
-        "plugin marketplace list --json": { marketplaces: [] },
+      run: fakeRun(calls, {
+        "plugin marketplace list --json": { marketplaces: [{ name: "nextster", root: legacy }] },
         "plugin list --json": { installed: [] },
         "plugin add chromium-bridge@nextster --json": { installed: true }
       })
     });
-    assert.ok(registration.some(args => args.join(" ") === `plugin marketplace add ${shared} --json`));
+    assert.equal(result.registeredRoot, legacy);
+    const commands = calls.map(args => args.join(" "));
+    assert.ok(!commands.some(command => command.startsWith("plugin marketplace add")));
+    assert.ok(!commands.includes("plugin marketplace remove nextster --json"));
+
+    assert.equal(await removeCompatLink({ root: shared, legacyRoot: legacy }), false);
+    await rm(shared, { recursive: true, force: true });
+    assert.equal(await removeCompatLink({ root: shared, legacyRoot: legacy }), true);
+    await assert.rejects(lstat(legacy));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex registration repairs lost roots and refuses unrelated ones", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "chromium-bridge-codex-repair-"));
+  const shared = path.join(root, "shared");
+  await mkdir(shared, { recursive: true });
+  try {
+    const recoveryCalls = [];
+    const recovered = await recoverCodexMarketplace({
+      codexPath: "codex",
+      run: async (command, args) => {
+        recoveryCalls.push(args.join(" "));
+        if (args.includes("list")) {
+          throw Object.assign(new Error("failed"), {
+            stderr: `failed to load marketplace(s):\n- \`nextster\` at ${root}/gone: marketplace root does not contain a supported manifest`
+          });
+        }
+        return { stdout: "" };
+      }
+    });
+    assert.deepEqual(recovered, { recovered: true });
+    assert.deepEqual(recoveryCalls, ["plugin marketplace list --json", "plugin marketplace remove nextster --json"]);
+    await assert.rejects(recoverCodexMarketplace({
+      codexPath: "codex",
+      run: async () => {
+        throw Object.assign(new Error("failed"), { stderr: "- `other` at /x: marketplace root does not contain a supported manifest" });
+      }
+    }), /failed/);
+
+    const repaired = [];
+    await registerCodex({
+      codexPath: "codex",
+      root: shared,
+      run: fakeRun(repaired, {
+        "plugin marketplace list --json": { marketplaces: [{ name: "nextster", root: path.join(root, "gone") }] },
+        "plugin list --json": { installed: [] },
+        "plugin add chromium-bridge@nextster --json": { installed: true }
+      })
+    });
+    const commands = repaired.map(args => args.join(" "));
+    assert.ok(commands.indexOf("plugin marketplace remove nextster --json") < commands.indexOf(`plugin marketplace add ${shared} --json`));
 
     const other = path.join(root, "other");
     await mkdir(other);
-    await assert.rejects(detachCodexMarketplace({
+    await assert.rejects(registerCodex({
       codexPath: "codex",
       root: shared,
-      legacyRoot: legacy,
       run: fakeRun([], { "plugin marketplace list --json": { marketplaces: [{ name: "nextster", root: other }] } })
     }), /already points to/);
   } finally {

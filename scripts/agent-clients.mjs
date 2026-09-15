@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { existsSync, realpathSync } from "node:fs";
-import { cp, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { atomicWriteFile, renameWithRetry } from "../native-host/src/atomic-file.mjs";
 import { runCommand } from "./platform.mjs";
 
@@ -44,19 +44,36 @@ export function marketplaceLocations(options = {}) {
   };
 }
 
-export async function migrateLegacyMarketplace({ root, legacyRoot }) {
-  if (samePath(root, legacyRoot) || !existsSync(legacyRoot)) return { migrated: false };
-  if ((await lstat(legacyRoot)).isSymbolicLink()) return { migrated: false, reason: "legacy path is a symlink" };
+// The legacy directory moves to the shared root and a link replaces it. Codex
+// stores the registered root as written, and bridge installers that still use
+// the legacy path compare it literally, so both keep working through the link.
+export async function migrateLegacyMarketplace({ root, legacyRoot, platform = process.platform }) {
+  if (path.resolve(root) === path.resolve(legacyRoot)) return { migrated: false };
+  let legacy;
+  try {
+    legacy = await lstat(legacyRoot);
+  } catch (error) {
+    if (error?.code === "ENOENT") return { migrated: false };
+    throw error;
+  }
+  if (legacy.isSymbolicLink()) {
+    return { migrated: false, compatLink: samePath(legacyRoot, root) ? legacyRoot : null };
+  }
 
   if (!existsSync(root)) {
     await mkdir(path.dirname(root), { recursive: true, mode: 0o700 });
     await moveDirectory(legacyRoot, root);
-    await removeEmptyDirectory(path.dirname(legacyRoot));
-    return { migrated: true, moved: true, from: legacyRoot, to: root };
+    try {
+      await linkDirectory(root, legacyRoot, platform);
+    } catch (error) {
+      await moveDirectory(root, legacyRoot);
+      throw error;
+    }
+    return { migrated: true, moved: true, from: legacyRoot, to: root, compatLink: legacyRoot };
   }
 
-  // A legacy root that reappears after migration was rewritten by a bridge
-  // installer that still targets it, so its copies of other plugins are newer.
+  // Both directories exist only when something recreated the legacy root after
+  // a migration, so its copies of other plugins are the newer ones.
   const legacyManifest = await readManifest(path.join(legacyRoot, ...CODEX_MANIFEST), codexManifestTemplate());
   const manifest = await readManifest(path.join(root, ...CODEX_MANIFEST), codexManifestTemplate());
   const imported = [];
@@ -74,8 +91,30 @@ export async function migrateLegacyMarketplace({ root, legacyRoot }) {
   }
   await writeJson(path.join(root, ...CODEX_MANIFEST), manifest);
   await rm(legacyRoot, { recursive: true, force: true });
+  const compatLink = await linkDirectory(root, legacyRoot, platform).then(() => legacyRoot, () => null);
+  return { migrated: true, merged: true, from: legacyRoot, to: root, imported, compatLink };
+}
+
+// Removes the legacy link once the shared root it points to is gone.
+export async function removeCompatLink({ root, legacyRoot }) {
+  try {
+    if (!(await lstat(legacyRoot)).isSymbolicLink()) return false;
+  } catch {
+    return false;
+  }
+  if (existsSync(root)) return false;
+  await rm(legacyRoot, { force: true });
   await removeEmptyDirectory(path.dirname(legacyRoot));
-  return { migrated: true, merged: true, from: legacyRoot, to: root, imported };
+  return true;
+}
+
+export async function isRealDirectory(directory) {
+  try {
+    const metadata = await lstat(directory);
+    return metadata.isDirectory() && !metadata.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 export async function installSharedMarketplace({ root, projectDir, nodePath, bootstrapPath }) {
@@ -157,36 +196,16 @@ export async function removeFromSharedMarketplace(root) {
 }
 
 // Codex fails every plugin command once a registered marketplace root loses its
-// manifest, so the legacy registration is detached before its directory moves.
-// Codex keeps installed plugin state by marketplace name, so re-adding the
-// shared marketplace at its new root preserves sibling bridge plugins.
-export async function detachCodexMarketplace({ codexPath, root, legacyRoot, run = runCommand }) {
-  let marketplaces;
-  let recovered = false;
+// manifest. Only that nextster failure is repaired; registerCodex re-adds it.
+export async function recoverCodexMarketplace({ codexPath, run = runCommand }) {
   try {
-    marketplaces = await runJson(run, codexPath, ["plugin", "marketplace", "list", "--json"]);
+    await runJson(run, codexPath, ["plugin", "marketplace", "list", "--json"]);
+    return { recovered: false };
   } catch (error) {
-    // An earlier interrupted migration can leave nextster registered at a root
-    // without a manifest; other failures are not ours to repair.
     if (!String(error?.stderr || error?.message || error).includes(`\`${MARKETPLACE_NAME}\``)) throw error;
     await run(codexPath, ["plugin", "marketplace", "remove", MARKETPLACE_NAME, "--json"]);
-    marketplaces = await runJson(run, codexPath, ["plugin", "marketplace", "list", "--json"]);
-    recovered = true;
+    return { recovered: true };
   }
-  const existing = marketplaces.marketplaces?.find(item => item.name === MARKETPLACE_NAME);
-  if (!existing || samePath(existing.root, root)) return { detachedFrom: null, recovered };
-  if (!samePath(existing.root, legacyRoot) && existsSync(existing.root)) {
-    throw new Error(`Codex marketplace ${MARKETPLACE_NAME} already points to ${existing.root}; expected ${root}`);
-  }
-  await run(codexPath, ["plugin", "marketplace", "remove", MARKETPLACE_NAME, "--json"]);
-  return { detachedFrom: existing.root, recovered };
-}
-
-// Restores a Codex registration after setup fails between detach and re-add.
-export async function restoreCodexMarketplace({ codexPath, root, legacyRoot, run = runCommand }) {
-  const target = [root, legacyRoot].find(candidate => existsSync(path.join(candidate, ...CODEX_MANIFEST)));
-  if (!target) return { restored: false };
-  return { restored: true, root: target, result: await runOptional(run, codexPath, ["plugin", "marketplace", "add", target, "--json"]) };
 }
 
 export async function registerCodex({ codexPath, root, run = runCommand }) {
@@ -196,10 +215,16 @@ export async function registerCodex({ codexPath, root, run = runCommand }) {
   }
   const marketplaces = await runJson(run, codexPath, ["plugin", "marketplace", "list", "--json"]);
   const existing = marketplaces.marketplaces?.find(item => item.name === MARKETPLACE_NAME);
+  // A registration through the legacy link resolves to the shared root and stays.
   if (existing && !samePath(existing.root, root)) {
-    throw new Error(`Codex marketplace ${MARKETPLACE_NAME} already points to ${existing.root}; expected ${root}`);
+    if (existsSync(existing.root)) {
+      throw new Error(`Codex marketplace ${MARKETPLACE_NAME} already points to ${existing.root}; expected ${root}`);
+    }
+    await run(codexPath, ["plugin", "marketplace", "remove", MARKETPLACE_NAME, "--json"]);
   }
-  if (!existing) await run(codexPath, ["plugin", "marketplace", "add", root, "--json"]);
+  if (!existing || !samePath(existing.root, root)) {
+    await run(codexPath, ["plugin", "marketplace", "add", root, "--json"]);
+  }
   const plugins = await runJson(run, codexPath, ["plugin", "list", "--json"]);
   if (plugins.installed?.some(item => item.pluginId === PLUGIN_ID)) {
     await run(codexPath, ["plugin", "remove", PLUGIN_ID, "--json"]);
@@ -210,6 +235,7 @@ export async function registerCodex({ codexPath, root, run = runCommand }) {
     command: codexPath,
     pluginId: PLUGIN_ID,
     marketplaceRoot: root,
+    registeredRoot: existing?.root || root,
     removedObsolete,
     installed
   };
@@ -335,6 +361,11 @@ async function readManifest(manifestPath, template) {
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   await atomicWriteFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 0o600);
+}
+
+// Junctions need no elevated privileges on Windows.
+function linkDirectory(target, linkPath, platform) {
+  return symlink(target, linkPath, platform === "win32" ? "junction" : "dir");
 }
 
 async function removeEmptyDirectory(directory) {

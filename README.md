@@ -88,7 +88,7 @@ Run the one-command installer again to update installed components. Useful optio
 
 ### Shared agent plugin marketplace
 
-`~/.agent-plugins/nextster` is a local plugin marketplace shared by Codex and Claude Code and by the Nextster bridges that use it. It contains a Codex manifest (`.agents/plugins/marketplace.json`), a Claude Code manifest (`.claude-plugin/marketplace.json`), a `README.md`, and one directory per plugin. Installers replace only their own plugin entry. Earlier releases kept a Codex-only copy under `~/.codex/marketplaces/nextster`; the installer moves it, including other bridges' plugins, and re-points the Codex marketplace. Set `NEXTSTER_MARKETPLACE_DIR` to use another location.
+`~/.agent-plugins/nextster` is a local plugin marketplace shared by Codex and Claude Code and by the Nextster bridges that use it. It contains a Codex manifest (`.agents/plugins/marketplace.json`), a Claude Code manifest (`.claude-plugin/marketplace.json`), a `README.md`, and one directory per plugin. Installers replace only their own plugin entry. Earlier releases kept a Codex-only copy under `~/.codex/marketplaces/nextster`; the installer moves it, including other bridges' plugins, and leaves a link at the old path so the existing Codex registration and bridge installers that still use that path keep working. Set `NEXTSTER_MARKETPLACE_DIR` to use another location.
 
 ### Migrating from Load unpacked
 

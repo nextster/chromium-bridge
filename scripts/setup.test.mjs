@@ -101,7 +101,7 @@ else console.log(JSON.stringify({ ok: true }));
     await assert.rejects(access(path.join(home, ".chromium-bridge", "bin", "chromium-sidecar")));
     assert.equal(result.codex.marketplaceRoot, marketplaceRoot);
     assert.equal(result.marketplace.migration.moved, true);
-    await assert.rejects(access(legacyMarketplaceRoot));
+    assert.equal(await readlink(legacyMarketplaceRoot), marketplaceRoot);
     assert.match(await readFile(path.join(marketplaceRoot, "README.md"), "utf8"), /shared by\nCodex and Claude Code/);
     const marketplace = JSON.parse(
       await readFile(path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json"), "utf8")
@@ -167,6 +167,8 @@ else console.log(JSON.stringify({ ok: true }));
     );
     assert.deepEqual(marketplaceAfterUninstall.plugins.map(item => item.name), ["telegram-bridge"]);
     assert.equal(await readFile(path.join(telegramPlugin, "marker.txt"), "utf8"), "keep");
+    assert.equal(await readlink(legacyMarketplaceRoot), marketplaceRoot);
+    assert.equal(uninstall.compatLinkRemoved, false);
     const uninstallCalls = (await readFile(logPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin remove chromium-bridge@nextster --json"));
     assert.ok(uninstallCalls.some(args => args.join(" ") === "plugin marketplace remove chromium-bridge --json"));
