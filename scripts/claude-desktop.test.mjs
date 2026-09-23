@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import {
   claudeDesktopLocations,
   desktopServerEntry,
+  isClaudeDesktopRunning,
   mergeDesktopServer,
   ownsDesktopEntry,
   registerClaudeDesktop,
@@ -106,4 +107,14 @@ test("registration writes atomically with a backup and preserves the file mode",
   } finally {
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("running Claude Desktop is detected from the process list on both platforms", async () => {
+  const mac = async () => ({ stdout: "/usr/sbin/cfprefsd\n/Applications/Claude.app/Contents/MacOS/Claude\n/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper\n" });
+  assert.equal(await isClaudeDesktopRunning({ platform: "darwin", execute: mac }), true);
+  assert.equal(await isClaudeDesktopRunning({ platform: "darwin", execute: async () => ({ stdout: "/usr/sbin/cfprefsd\n" }) }), false);
+  const windows = async () => ({ stdout: "\nClaude.exe                    4242 Console                    1    210,000 K\n" });
+  assert.equal(await isClaudeDesktopRunning({ platform: "win32", execute: windows }), true);
+  assert.equal(await isClaudeDesktopRunning({ platform: "win32", execute: async () => ({ stdout: "INFO: No tasks are running which match the specified criteria.\n" }) }), false);
+  assert.equal(await isClaudeDesktopRunning({ platform: "linux", execute: async () => { throw new Error("unused"); } }), false);
 });

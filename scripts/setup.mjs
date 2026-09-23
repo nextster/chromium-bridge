@@ -131,6 +131,7 @@ const next = readiness?.ready
       `Choose Load unpacked and select ${installedExtensionDir}`,
       ...(activate ? [activate] : [])
     ];
+next.push(...desktopRestartWarning(clients));
 if (clients.missingAll) {
   next.push("Install Codex, Claude Code, or Claude Desktop, then rerun this installer to register Chromium Bridge");
 }
@@ -170,7 +171,7 @@ function summary() {
     if (result.skipped) return `  ${name}: skipped (${result.reason})`;
     if (result.configs) {
       const actions = result.configs.map(item => item.action).join(", ");
-      return `  ${name}: ${actions}${result.restartRequired ? ", restart required" : ""}`;
+      return `  ${name}: ${actions}${result.restartRequired ? ", restart required" : ""}${result.appRunning ? " (running now)" : ""}`;
     }
     return `  ${name}: registered ${result.pluginId}`;
   };
@@ -246,6 +247,13 @@ function activationStep(result) {
   if (!steps.length) return "";
   const sentence = steps.length > 1 ? `${steps.slice(0, -1).join(", ")} or ${steps.at(-1)}` : steps[0];
   return `To use it, ${sentence}.`;
+}
+
+function desktopRestartWarning(result) {
+  if (!result.claudeDesktop.appRunning) return [];
+  return [
+    "Quit and reopen Claude Desktop now. It reads MCP settings only at startup and overwrites this entry when it saves its own settings first; if the Chromium Bridge tools do not appear, rerun this installer while Claude Desktop is closed."
+  ];
 }
 
 async function migrateLegacyState() {

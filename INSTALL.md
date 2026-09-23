@@ -88,7 +88,9 @@ Any other exit status is an error; show it to the user. If `chromium-bridge stat
 Tell the user the result. Tools load only in new sessions, so remind them to:
 
 - start a new Codex task or Claude Code session;
-- restart Claude Desktop if `claudeDesktop.restartRequired` was `true`.
+- quit and reopen Claude Desktop if `claudeDesktop.restartRequired` was `true`.
+
+If `claudeDesktop.appRunning` was `true`, say this explicitly: Claude Desktop reads MCP settings only at startup and overwrites the new entry when it saves its own settings first, so the user should quit and reopen it right away. If the Chromium Bridge tools still do not appear there, the user reruns the installer command while Claude Desktop is closed. Do not quit Claude Desktop yourself: when you run inside its Code tab, that ends your own session.
 
 Claude Desktop gets the MCP tools only. The routing skill works in Codex and Claude Code.
 
