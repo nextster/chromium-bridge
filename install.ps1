@@ -14,7 +14,7 @@
   $ProgressPreference = 'SilentlyContinue'
 
   $repository = if ($env:CHROMIUM_BRIDGE_REPOSITORY) { $env:CHROMIUM_BRIDGE_REPOSITORY } else { 'nextster/chromium-bridge' }
-  $ref = if ($env:CHROMIUM_BRIDGE_REF) { $env:CHROMIUM_BRIDGE_REF } else { 'v0.7.0' }
+  $ref = if ($env:CHROMIUM_BRIDGE_REF) { $env:CHROMIUM_BRIDGE_REF } else { 'v0.7.1' }
   $sourceDir = $env:CHROMIUM_BRIDGE_SOURCE_DIR
   $userProfile = [Environment]::GetFolderPath('UserProfile')
   $stateDir = if ($env:CHROMIUM_BRIDGE_STATE_DIR) { $env:CHROMIUM_BRIDGE_STATE_DIR } else { Join-Path $userProfile '.chromium-bridge' }

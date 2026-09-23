@@ -7,7 +7,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFi
 import { developmentStatus, linkDevelopment, unlinkDevelopment } from "./dev-mode.mjs";
 
 test("dev link is idempotent and unlink restores bundled runtime", async () => {
-  const fixture = await makeFixture("0.7.0", "0.7.0");
+  const fixture = await makeFixture("0.7.1", "0.7.1");
   try {
     const first = await linkDevelopment(fixture.options);
     assert.equal(first.mode, "checkout");
@@ -33,10 +33,10 @@ test("dev link is idempotent and unlink restores bundled runtime", async () => {
 });
 
 test("dev status reports stale versions and invalid moved checkout", async () => {
-  const fixture = await makeFixture("0.7.0", "0.6.9");
+  const fixture = await makeFixture("0.7.1", "0.7.0");
   try {
     let status = await developmentStatus(fixture.options);
-    assert.match(status.mismatches.join("\n"), /installed plugin 0\.6\.9 differs from repo 0\.7\.0/);
+    assert.match(status.mismatches.join("\n"), /installed plugin 0\.7\.0 differs from repo 0\.7\.1/);
     assert.equal(status.nativeHost.bootstrapCurrent, true);
 
     await linkDevelopment(fixture.options);
@@ -57,7 +57,7 @@ test("dev status reports stale versions and invalid moved checkout", async () =>
 test("dev unlink refuses a symlink instead of deleting an arbitrary target", {
   skip: process.platform === "win32" && "file symlinks need elevated privileges"
 }, async () => {
-  const fixture = await makeFixture("0.7.0", "0.7.0");
+  const fixture = await makeFixture("0.7.1", "0.7.1");
   const target = path.join(fixture.root, "keep.json");
   try {
     await writeFile(target, "keep\n");
@@ -115,18 +115,18 @@ async function makeFixture(repoVersion, installedVersion) {
 test("dev status reads the Codex plugin cache under the nextster marketplace", {
   skip: process.platform === "win32" && "uses a POSIX shell fake"
 }, async () => {
-  const fixture = await makeFixture("0.7.0", "0.7.0");
+  const fixture = await makeFixture("0.7.1", "0.7.1");
   const codexHome = path.join(fixture.root, "codex-home");
-  const cachedPlugin = path.join(codexHome, "plugins", "cache", "nextster", "chromium-bridge", "0.7.0");
+  const cachedPlugin = path.join(codexHome, "plugins", "cache", "nextster", "chromium-bridge", "0.7.1");
   const codexPath = path.join(fixture.root, "codex");
   try {
     await mkdir(path.join(cachedPlugin, ".codex-plugin"), { recursive: true });
-    await writeFile(path.join(cachedPlugin, ".codex-plugin", "plugin.json"), JSON.stringify({ version: "0.7.0" }));
+    await writeFile(path.join(cachedPlugin, ".codex-plugin", "plugin.json"), JSON.stringify({ version: "0.7.1" }));
     await writeFile(path.join(cachedPlugin, ".mcp.json"), JSON.stringify({
       mcpServers: { "chromium-bridge": { command: "node", args: [path.join(fixture.stateDir, "runtime", "runtime-bootstrap.mjs"), "mcp"] } }
     }));
     await writeFile(codexPath, `#!/bin/sh\nprintf '%s' '${JSON.stringify({
-      installed: [{ pluginId: "chromium-bridge@nextster", version: "0.7.0", source: { path: fixture.root } }]
+      installed: [{ pluginId: "chromium-bridge@nextster", version: "0.7.1", source: { path: fixture.root } }]
     })}'\n`, { mode: 0o700 });
     await chmod(codexPath, 0o700);
     const { installedPluginPath, ...options } = fixture.options;
@@ -140,7 +140,7 @@ test("dev status reads the Codex plugin cache under the nextster marketplace", {
 });
 
 test("dev link refuses to reuse a runtime bootstrap from another release", async () => {
-  const fixture = await makeFixture("0.7.0", "0.7.0");
+  const fixture = await makeFixture("0.7.1", "0.7.1");
   try {
     await writeFile(path.join(fixture.stateDir, "runtime", "runtime-bootstrap.mjs"), "export const older = true;\n", { mode: 0o600 });
     const status = await developmentStatus(fixture.options);
