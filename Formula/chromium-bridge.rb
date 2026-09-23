@@ -1,8 +1,8 @@
 class ChromiumBridge < Formula
   desc "Local agent bridge for user-authorized Chromium browsers"
   homepage "https://github.com/nextster/chromium-bridge"
-  url "https://github.com/nextster/chromium-bridge/releases/download/v0.7.2/chromium-bridge-0.7.2.tar.gz"
-  sha256 "949c937f18f12374deb2d4d33c1a5929b43500e606c6c19500fc34088c2f6015"
+  url "https://github.com/nextster/chromium-bridge/releases/download/v0.7.3/chromium-bridge-0.7.3.tar.gz"
+  sha256 "58a2671d44f1e233cf5fa2fcb0ab3bd95d76e88b34380a98588a1158685104de"
   license "MIT"
 
   depends_on :macos
