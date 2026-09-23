@@ -60,33 +60,28 @@ Chrome, Edge, Brave, Vivaldi, and Chromium work on both systems; Arc works on ma
 
 ## 3. Wait until the bridge is ready
 
-Every 5 seconds, for up to 10 minutes, run the status command.
+Every 5 seconds, for up to 10 minutes, run the readiness command.
 
 macOS:
 
 ```bash
-~/.chromium-bridge/bin/chromium-bridge status
+~/.chromium-bridge/bin/chromium-bridge ready
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-& "$env:USERPROFILE\.chromium-bridge\bin\chromium-bridge.cmd" status
+& "$env:USERPROFILE\.chromium-bridge\bin\chromium-bridge.cmd" ready
 ```
 
-The bridge is ready when the JSON output has:
+It prints one line and exits with status 0 when the bridge is ready, or 2 while a step is still missing. When the line changes, show it to the user as their next step:
 
-- `extension.pong` set to `true`
-- `extension.privacy.consented` set to `true`
-- `extension.permissions.siteAccess` and `extension.permissions.tabs` set to `true`
-- `extension.userScriptsAvailable` set to `true`
+- `Install the Chromium Bridge extension in your browser and keep the browser open.`
+- `Approve local browser access in the Chromium Bridge popup.`
+- `Open the extension details and enable Allow User Scripts.`
+- `Chromium Bridge is ready.`
 
-While you wait, map the output to one reminder for the user:
-
-- **`Chromium Bridge is unavailable at …`:** the extension is not installed yet, or the browser is closed. Remind the user to add the extension and keep the browser open.
-- **`privacy.consented` or a permission is `false`:** remind the user to approve access in the popup.
-- **`userScriptsAvailable` is `false`:** remind the user to enable Allow User Scripts.
-- **`host.extension.id` is not `lgfjelplnddfhmjjbhmmmmiglbgkeilb`:** another Chromium Bridge build is connected. Ask the user to remove it and install the Store version.
+Any other exit status is an error; show it to the user. If `chromium-bridge status` reports a `host.extension.id` other than `lgfjelplnddfhmjjbhmmmmiglbgkeilb`, another Chromium Bridge build is connected: ask the user to remove it and install the Store version.
 
 ## 4. Finish
 

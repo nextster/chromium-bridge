@@ -93,9 +93,22 @@
     }
   }
 
+  # Retries like install.sh's curl --retry 3; a flaky connection was the most
+  # likely reason for a first attempt to fail.
   function Invoke-Download([string] $uri, [string] $destination) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $destination
+    $attempt = 0
+    while ($true) {
+      $attempt += 1
+      try {
+        Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $destination
+        return
+      } catch {
+        if ($attempt -ge 4) { throw }
+        Write-Warning "Download failed ($($_.Exception.Message)); retrying $uri"
+        Start-Sleep -Seconds (2 * $attempt)
+      }
+    }
   }
 
   function Expand-Zip([string] $archive, [string] $destination) {

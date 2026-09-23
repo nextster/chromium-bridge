@@ -34,6 +34,7 @@ export const RUNTIME_FILES = Object.freeze([
   "control-endpoint.mjs",
   "native-protocol.mjs",
   "open-directory.mjs",
+  "readiness.mjs",
   "replay.mjs",
   "host.mjs",
   "mcp-server.mjs",

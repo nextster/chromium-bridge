@@ -35,7 +35,7 @@ test("Store readiness accepts only a fully approved Store extension", () => {
   );
   assert.equal(
     storeReadinessStep(status(storeId, { userScriptsAvailable: false }), storeId, developmentId),
-    "Open extension details and enable Allow User Scripts."
+    "Open the extension details and enable Allow User Scripts."
   );
 });
 

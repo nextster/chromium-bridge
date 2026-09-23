@@ -46,6 +46,7 @@ const temporaryExtensionDir = `${installedExtensionDir}.tmp-${process.pid}`;
 const marketplace = marketplaceLocations();
 const developmentLinkPath = path.join(stateDir, "dev-link.json");
 const installerPath = path.join(projectDir, "native-host", "src", "install.mjs");
+const packageVersion = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8")).version;
 const configuredStoreExtensionId = extensionId || await readStoreExtensionId();
 const storeMode = Boolean(configuredStoreExtensionId) && !sourceMode;
 const hostOnly = requestedHostOnly || storeMode;
@@ -160,7 +161,31 @@ console.log(JSON.stringify({
   readiness,
   next
 }, null, 2));
+console.error(summary());
 if (readiness && !readiness.ready) process.exitCode = 2;
+
+// The JSON above is for scripts; this is what a person or agent reads in the terminal.
+function summary() {
+  const client = (name, result) => {
+    if (result.skipped) return `  ${name}: skipped (${result.reason})`;
+    if (result.configs) {
+      const actions = result.configs.map(item => item.action).join(", ");
+      return `  ${name}: ${actions}${result.restartRequired ? ", restart required" : ""}`;
+    }
+    return `  ${name}: registered ${result.pluginId}`;
+  };
+  return [
+    "",
+    `Chromium Bridge ${packageVersion} ${dryRun ? "dry run" : "installed"} (${storeMode ? "store" : hostOnly ? "host-only" : "source"} mode).`,
+    `  Browsers: ${hostResult.browserRegistrations.map(item => item.browser).join(", ")}`,
+    client("Codex", clients.codex),
+    client("Claude Code", clients.claudeCode),
+    client("Claude Desktop", clients.claudeDesktop),
+    "Next:",
+    ...next.map(step => `  - ${step}`),
+    ""
+  ].join("\n");
+}
 
 async function registerClients() {
   const codexPath = skipCodex ? null : await findCodexCli();
