@@ -87,7 +87,7 @@ else console.log(JSON.stringify({ ok: true }));
         CODEX_HOME: path.join(home, ".codex"),
         CODEX_TEST_LOG: logPath,
         CLAUDE_TEST_LOG: claudeLogPath,
-        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "nextster", "chromium-bridge", "0.7.1"),
+        CODEX_TEST_INSTALLED_PATH: path.join(home, ".codex", "plugins", "cache", "nextster", "chromium-bridge", "0.7.2"),
         PATH: `${binDir}:${path.dirname(process.execPath)}:/usr/bin:/bin`
       }
     });

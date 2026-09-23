@@ -155,7 +155,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", {
   await waitUntil(() => responses.length === 5);
   const response = id => responses.find(item => item.id === id);
   assert.equal(response(1).result.serverInfo.name, "chromium-bridge");
-  assert.equal(response(1).result.serverInfo.version, "0.7.1");
+  assert.equal(response(1).result.serverInfo.version, "0.7.2");
   assert.ok(response(2).result.tools.some(tool => tool.name === "snapshot"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "browser_flow"));
   assert.ok(response(2).result.tools.some(tool => tool.name === "scroll"));
