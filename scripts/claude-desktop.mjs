@@ -1,8 +1,12 @@
 import os from "node:os";
 import process from "node:process";
+import { execFile } from "node:child_process";
 import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 import { atomicWriteFile } from "../native-host/src/atomic-file.mjs";
 import { pathApiFor } from "./platform.mjs";
+
+const execFileAsync = promisify(execFile);
 
 export const CLAUDE_DESKTOP_SERVER_NAME = "chromium-bridge";
 const CONFIG_FILE = "claude_desktop_config.json";
@@ -59,6 +63,25 @@ export async function claudeDesktopLocations(options = {}) {
   };
 }
 
+// Claude Desktop reads mcpServers at startup and rewrites the whole config
+// from memory whenever it saves its own settings, so an entry added while it
+// runs survives only if the app restarts before its next save.
+export async function isClaudeDesktopRunning(options = {}) {
+  const platform = options.platform || process.platform;
+  const execute = options.execute || execFileAsync;
+  try {
+    if (platform === "win32") {
+      const { stdout } = await execute("tasklist.exe", ["/FI", "IMAGENAME eq Claude.exe", "/NH"], { windowsHide: true });
+      return /^claude\.exe/im.test(stdout);
+    }
+    if (platform === "darwin") {
+      const { stdout } = await execute("/bin/ps", ["-axo", "comm="]);
+      return stdout.split("\n").some(line => line.trim().endsWith("/Claude.app/Contents/MacOS/Claude"));
+    }
+  } catch {}
+  return false;
+}
+
 export function desktopServerEntry(nodePath, bootstrapPath) {
   return { command: nodePath, args: [bootstrapPath, "mcp"] };
 }
@@ -108,12 +131,14 @@ export async function registerClaudeDesktop(options) {
     }
     results.push({ configPath, action: merged.action });
   }
+  const restartRequired = results.some(item => item.action !== "unchanged");
   return {
     skipped: false,
     dryRun: Boolean(options.dryRun),
     server: CLAUDE_DESKTOP_SERVER_NAME,
     configs: results,
-    restartRequired: results.some(item => item.action !== "unchanged")
+    restartRequired,
+    appRunning: restartRequired ? await isClaudeDesktopRunning(options) : false
   };
 }
 

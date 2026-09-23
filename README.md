@@ -46,7 +46,7 @@ The installer:
 2. Installs the Native Messaging host, CLI, and MCP server runtime for supported Chromium browsers. macOS uses per-browser manifest files; Windows uses per-user `HKCU` registry keys for Chrome, Chromium, Brave, Edge, and Vivaldi.
 3. Registers every detected agent client:
    - Codex and Claude Code install `chromium-bridge@nextster` from the shared local marketplace in `~/.agent-plugins/nextster`. The Claude Code registration also covers the Code tab of the Claude desktop app.
-   - Claude Desktop gets a `chromium-bridge` entry in `mcpServers` of `claude_desktop_config.json`. Other settings are preserved and the previous file is kept as `claude_desktop_config.json.chromium-bridge-backup`.
+   - Claude Desktop gets a `chromium-bridge` entry in `mcpServers` of `claude_desktop_config.json`. Other settings are preserved and the previous file is kept as `claude_desktop_config.json.chromium-bridge-backup`. Quit and reopen Claude Desktop right after installing: it reads MCP settings only at startup and overwrites the file from memory when it saves its own settings, so an entry added while it runs can be lost until the installer is rerun with the app closed.
 4. Opens the Unlisted Store listing and waits for extension installation, local-access consent, and Allow User Scripts.
 5. Reports readiness after the browser bridge answers a live status check.
 
