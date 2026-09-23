@@ -19,7 +19,7 @@ import { findClaudeCli } from "./claude-cli.mjs";
 import { claudeDesktopLocations, registerClaudeDesktop } from "./claude-desktop.mjs";
 import { findCodexCli } from "./codex-cli.mjs";
 import { detectBrowser, openInBrowser } from "./platform.mjs";
-import { READY_STEP, bridgeKind, storeReadinessStep } from "./store-migration.mjs";
+import { READY_STEP, bridgeKind, storeNextSteps, storeReadinessStep } from "./store-migration.mjs";
 
 const execFileAsync = promisify(execFile);
 const rawArgs = process.argv.slice(2);
@@ -101,8 +101,10 @@ if (!skipOpen && !dryRun && storeMode && browser) {
 }
 
 let readiness = null;
-if (!dryRun && storeMode && waitForBrowser) {
-  readiness = await waitUntilReady(waitSeconds(), configuredStoreExtensionId, hostResult.extensionId);
+if (!dryRun && storeMode) {
+  readiness = waitForBrowser
+    ? await waitUntilReady(waitSeconds(), configuredStoreExtensionId, hostResult.extensionId)
+    : await probeReadiness(configuredStoreExtensionId, hostResult.extensionId);
 }
 const developmentCleanup = readiness?.ready
   ? await cleanupDevelopmentExtensionFiles()
@@ -113,12 +115,10 @@ const next = readiness?.ready
   ? [`Chromium Bridge is ready.${activate ? ` ${activate}` : ""}`]
   : storeMode
   ? [
-      `Install Chromium Bridge from ${storeUrl}`,
+      ...storeNextSteps(readiness?.status || null, configuredStoreExtensionId, hostResult.extensionId, storeUrl),
       ...(readiness?.migration?.error
         ? ["Remove the unpacked Chromium Bridge extension manually, then rerun setup"]
         : []),
-      "Approve local browser access in the onboarding page",
-      "Enable Allow User Scripts in the extension details",
       ...(activate ? [activate] : [])
     ]
   : hostOnly
@@ -162,7 +162,7 @@ console.log(JSON.stringify({
   next
 }, null, 2));
 console.error(summary());
-if (readiness && !readiness.ready) process.exitCode = 2;
+if (readiness?.timedOut) process.exitCode = 2;
 
 // The JSON above is for scripts; this is what a person or agent reads in the terminal.
 function summary() {
@@ -326,6 +326,18 @@ async function waitUntilReady(timeoutSeconds, storeExtensionId, developmentExten
     ...(lastError ? { error: lastError } : {}),
     migration
   };
+}
+
+// One status check so --no-wait still reports only the steps that remain.
+async function probeReadiness(storeExtensionId, developmentExtensionId) {
+  const checkedAt = new Date().toISOString();
+  try {
+    const status = await runBridgeCli(["status"], 7000);
+    const step = storeReadinessStep(status, storeExtensionId, developmentExtensionId);
+    return { ready: step === READY_STEP, probed: true, checkedAt, step, status };
+  } catch (error) {
+    return { ready: false, probed: true, checkedAt, error: String(error?.stderr || error?.message || error).trim() };
+  }
 }
 
 async function requestDevelopmentUninstall() {

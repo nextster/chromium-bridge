@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { READY_STEP, bridgeKind, storeReadinessStep } from "./store-migration.mjs";
+import { READY_STEP, bridgeKind, storeNextSteps, storeReadinessStep } from "./store-migration.mjs";
 
 const storeId = "store-id";
 const developmentId = "development-id";
@@ -42,4 +42,22 @@ test("Store readiness accepts only a fully approved Store extension", () => {
 test("Store readiness identifies missing and conflicting extensions", () => {
   assert.equal(bridgeKind(status(""), storeId, developmentId), "missing");
   assert.equal(bridgeKind(status("other-id"), storeId, developmentId), "other");
+});
+
+test("Store next steps list only what the user still has to do", () => {
+  const storeUrl = "https://example.test/store";
+  assert.deepEqual(storeNextSteps(null, storeId, developmentId, storeUrl), [
+    `Install Chromium Bridge from ${storeUrl}`,
+    "Approve local browser access in the onboarding page",
+    "Enable Allow User Scripts in the extension details"
+  ]);
+  assert.deepEqual(storeNextSteps(status(storeId, { privacy: { consented: false } }), storeId, developmentId, storeUrl), [
+    "Approve local browser access in the onboarding page"
+  ]);
+  assert.deepEqual(storeNextSteps(status(storeId, { userScriptsAvailable: false }), storeId, developmentId, storeUrl), [
+    "Enable Allow User Scripts in the extension details"
+  ]);
+  assert.deepEqual(storeNextSteps(status(storeId), storeId, developmentId, storeUrl), []);
+  assert.match(storeNextSteps(status(developmentId), storeId, developmentId, storeUrl)[0], /^Remove the unpacked development extension/);
+  assert.match(storeNextSteps(status("other-id"), storeId, developmentId, storeUrl)[0], /^Disable the conflicting/);
 });
