@@ -1,4 +1,6 @@
-export const READY_STEP = "Browser bridge is ready.";
+import { READY_MESSAGE, readinessStep } from "../native-host/src/readiness.mjs";
+
+export const READY_STEP = READY_MESSAGE;
 
 export function bridgeKind(status, storeExtensionId, developmentExtensionId) {
   const id = status?.host?.extension?.id || "";
@@ -18,12 +20,5 @@ export function storeReadinessStep(status, storeExtensionId, developmentExtensio
       return "Install the extension from the Store page.";
   }
 
-  const extension = status.extension;
-  if (!extension.privacy?.consented || !extension.permissions?.siteAccess || !extension.permissions?.tabs) {
-    return "Approve local browser access in the Chromium Bridge onboarding page.";
-  }
-  if (!extension.userScriptsAvailable) {
-    return "Open extension details and enable Allow User Scripts.";
-  }
-  return READY_STEP;
+  return readinessStep(status.extension).message;
 }

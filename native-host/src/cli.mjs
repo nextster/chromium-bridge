@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { connectControl, controlEndpoint } from "./control-endpoint.mjs";
+import { INSTALL_MESSAGE, readinessStep } from "./readiness.mjs";
 
 const endpoint = controlEndpoint();
 const socketPath = endpoint.path;
@@ -17,6 +18,8 @@ async function main(name, argv) {
   switch (name) {
     case "status":
       return print(await request("host.status"));
+    case "ready":
+      return reportReadiness();
     case "host-info":
       return print(await request("host.info"));
     case "extension-reload":
@@ -83,6 +86,20 @@ async function main(name, argv) {
     default:
       usage();
   }
+}
+
+// One line and an exit code, so installers and agents can poll without
+// parsing the status JSON. A missing host means the extension is not connected.
+async function reportReadiness() {
+  let step;
+  try {
+    step = readinessStep((await request("host.status")).extension);
+  } catch (error) {
+    if (!["ENOENT", "ECONNREFUSED"].includes(error?.code) && !/Timed out/.test(error?.message || "")) throw error;
+    step = { ready: false, message: INSTALL_MESSAGE };
+  }
+  console.log(step.message);
+  if (!step.ready) process.exitCode = 2;
 }
 
 function extension(commandName, params = {}) {
@@ -189,6 +206,7 @@ function friendlyError(error) {
 function usage() {
   console.log(`Usage:
   chromium-bridge status
+  chromium-bridge ready
   chromium-bridge host-info
   chromium-bridge extension-reload
   chromium-bridge providers
