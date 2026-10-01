@@ -1,6 +1,7 @@
 import { createTabAndWait, navigateTabAndWait } from "./tab-navigation.js";
 import { scheduleDevelopmentUninstall } from "./development-migration.js";
 import { ManagedScriptsManager } from "./managed-scripts.js";
+import { createUserScriptMessageHandler } from "./user-script-messages.js";
 import {
   captureOptions,
   extractCapturedRequestBody,
@@ -89,6 +90,13 @@ async function handlePermissionChange() {
   await reconcileManagedScriptsForCurrentAccess();
   await sendHello();
 }
+
+chrome.runtime.onUserScriptMessage?.addListener(createUserScriptMessageHandler({
+  tabs: chrome.tabs,
+  windows: chrome.windows,
+  extensionId: chrome.runtime.id,
+  requireAccess: requireBrowserAccess
+}));
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const extensionPage = sender.id === chrome.runtime.id && String(sender.url || "").startsWith(chrome.runtime.getURL(""));
@@ -466,6 +474,8 @@ async function reconcileManagedScriptsForCurrentAccess() {
   const available = await userScriptsAvailable(true);
   if (!available) return { available: false };
   try {
+    // Lets managed scripts call chrome.runtime.sendMessage (see user-script-messages.js)
+    await chrome.userScripts.configureWorld?.({ messaging: true });
     const permissions = await permissionState();
     const registerEnabled = privacyState().consented && permissions.siteAccess && permissions.tabs;
     const result = await managedScripts.reconcile({ registerEnabled });
