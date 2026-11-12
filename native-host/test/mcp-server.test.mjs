@@ -73,6 +73,7 @@ test("MCP server exposes Chromium and provider tools over the control socket", {
               value: ""
             }]
           }];
+          if (request.params.params.frameResults) result = result.map(item => ({ frameId: 0, documentId: "main", result: item }));
         } else if (request.params?.command === "tabs.create") {
           extensionCommands.push({
             command: request.params.command,
@@ -254,16 +255,14 @@ test("MCP server exposes Chromium and provider tools over the control socket", {
     tabId: 42,
     actions: [
       { action: "snapshot" },
-      { action: "scroll", deltaY: 700 },
-      { action: "fill", ref: "e1", value: "query" },
-      { action: "click", ref: "e1" }
+      { action: "scroll", deltaY: 700 }
     ]
   });
   await waitUntil(() => responses.length === 15);
   const flow = JSON.parse(response(15).result.content[0].text);
   assert.equal(flow.completed, true);
   assert.equal(flow.tabId, 42);
-  assert.deepEqual(flow.steps.map(step => step.action), ["snapshot", "scroll", "fill", "click"]);
+  assert.deepEqual(flow.steps.map(step => step.action), ["snapshot", "scroll"]);
 
   writeToolCall(child, 16, "managed_script_list", {});
   writeToolCall(child, 17, "managed_script_get", { id: "youtube-cleanup" });

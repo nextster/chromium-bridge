@@ -1,0 +1,7 @@
+<!doctype html><title>Fictional form</title>
+<form onsubmit="event.preventDefault(); document.body.dataset.submitted = 'yes'">
+<label>Fictional name<input id="name" aria-label="Fictional name"></label>
+<select id="choice" aria-label="Fictional choice"><option value="imaginary">Imaginary</option></select>
+<div id="note" contenteditable="true" aria-label="Fictional note"></div>
+<button id="submit" type="submit">Save fiction</button>
+</form>
