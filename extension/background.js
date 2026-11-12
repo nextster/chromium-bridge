@@ -437,10 +437,26 @@ async function executeUserScript(params) {
   const tabId = await getTabId(params.tabId);
   const code = requiredBoundedString(params.code, "code", MAX_SCRIPT_CHARS);
   const world = params.world === "MAIN" ? "MAIN" : "USER_SCRIPT";
+  const target = { tabId };
+  if (params.allFrames === true) target.allFrames = true;
+  if (params.frameIds !== undefined) {
+    if (params.allFrames || !Array.isArray(params.frameIds) || !params.frameIds.length ||
+        !params.frameIds.every(id => Number.isInteger(id) && id >= 0)) {
+      throw new Error("Invalid script frameIds or conflicting allFrames target");
+    }
+    target.frameIds = params.frameIds;
+  }
+  if (params.documentIds !== undefined) {
+    if (params.allFrames || params.frameIds !== undefined || !Array.isArray(params.documentIds) ||
+        !params.documentIds.length || !params.documentIds.every(id => typeof id === "string" && id)) {
+      throw new Error("Invalid script documentIds or conflicting frame target");
+    }
+    target.documentIds = params.documentIds;
+  }
   let results;
   try {
     results = await chrome.userScripts.execute({
-      target: { tabId },
+      target,
       world,
       injectImmediately: true,
       js: [{ code }]
@@ -449,6 +465,7 @@ async function executeUserScript(params) {
     userScriptsReady = null;
     throw error;
   }
+  if (params.frameResults === true) return results;
   return results.map(item => item.error ? { error: item.error, frameId: item.frameId } : item.result);
 }
 

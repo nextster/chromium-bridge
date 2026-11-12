@@ -1,4 +1,5 @@
 import process from "node:process";
+import { randomUUID } from "node:crypto";
 import { PRODUCT_VERSION } from "./constants.mjs";
 import { connectControl, controlEndpoint } from "./control-endpoint.mjs";
 
@@ -8,6 +9,9 @@ const DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const endpoint = controlEndpoint();
 const socketPath = endpoint.path;
 const refMaps = new Map();
+const refStoreKey = `chromiumBridgeRefs_${randomUUID()}`;
+const enteredValues = new Set();
+let snapshotSequence = 0;
 const ownedTabIds = new Set();
 let controlClient;
 
@@ -74,7 +78,7 @@ const tools = [
   tool("reload", "Reload a browser tab.", {
     tabId: tabProperty()
   }, browserMutation),
-  tool("snapshot", "Primary fast page inspection. Includes active-tab metadata, text, headings, and temporary refs such as e1; no status or active_tab call is needed first.", {
+  tool("snapshot", "Primary fast page inspection. Includes accessible nested frames, frame metadata, text, headings, and opaque temporary refs; no status or active_tab call is needed first.", {
     tabId: tabProperty(),
     maxElements: integerProperty("Maximum interactive elements to return.", 1, 500),
     maxTextChars: integerProperty("Maximum visible-text characters to return.", 0, 20000),
@@ -88,7 +92,7 @@ const tools = [
     ...postActionProperties()
   }, browserMutation),
   tool("click", "Click an element ref from the latest snapshot. Inspect the target before clicks that can submit or trigger an external action.", {
-    ref: stringProperty("Element ref from snapshot, for example e3."),
+    ref: stringProperty("Opaque element ref from the latest snapshot."),
     tabId: tabProperty(),
     ...postActionProperties()
   }, browserMutation, ["ref"]),
@@ -153,7 +157,7 @@ const tools = [
   tool("managed_script_remove", "Permanently remove a Bridge-managed script from registration and local extension storage.", {
     id: managedScriptIdProperty()
   }, managedRemoval, ["id"]),
-  tool("wait_for", "Wait until text or a CSS selector is visible or hidden.", {
+  tool("wait_for", "Wait until text, a CSS selector, or a snapshot ref is visible or hidden.", {
     text: stringProperty("Text to find in visible page text."),
     selector: stringProperty("CSS selector to inspect."),
     ref: stringProperty("Element ref from the latest snapshot."),
@@ -432,17 +436,46 @@ async function pageSnapshot(args) {
   const tabId = await resolveTabId(args.tabId);
   const maxElements = boundedInteger(args.maxElements, 60, 1, 500);
   const maxTextChars = boundedInteger(args.maxTextChars, 3000, 0, 20000);
-  const snapshot = await executeScript(
+  const snapshotId = `s${++snapshotSequence}`;
+  const results = await extension("script.execute", {
     tabId,
-    snapshotSource(maxElements, maxTextChars, args.includeRects === true)
-  );
+    code: snapshotSource(maxElements, maxTextChars, args.includeRects === true, snapshotId),
+    world: "USER_SCRIPT",
+    allFrames: true,
+    frameResults: true
+  });
+  if (!Array.isArray(results) || !results.length) throw new Error("Snapshot returned no accessible frames; check website permissions");
   const refs = new Map();
-  for (const element of snapshot.elements || []) {
-    refs.set(element.ref, element.selector);
-    delete element.selector;
+  const frames = [];
+  for (const { frameId, documentId, result, error } of results) {
+    if (!Number.isInteger(frameId) || !documentId) throw new Error("Frame metadata is missing; update the Chromium Bridge extension");
+    if (error || !result) {
+      frames.push({ frameId, documentId, error: "Frame unavailable; check website permissions and take a new snapshot" });
+      continue;
+    }
+    for (const element of result.elements || []) {
+      const localRef = element.ref;
+      element.ref = `${snapshotId}f${frameId}${localRef}`;
+      element.frameId = frameId;
+      refs.set(element.ref, { tabId, frameId, documentId, snapshotId, localRef });
+      delete element.selector;
+    }
+    frames.push({ ...redactSnapshot(result), frameId, documentId });
   }
   refMaps.set(tabId, refs);
-  return { tabId, ...snapshot };
+  const main = frames.find(frame => frame.frameId === 0 && !frame.error);
+  const accessibleFrames = frames.filter(frame => !frame.error);
+  if (!accessibleFrames.length) throw new Error("Snapshot returned no accessible frames; check website permissions");
+  const embeddedCount = accessibleFrames.reduce((count, frame) => count + frame.embeds.length, 0);
+  return {
+    tabId,
+    ...main,
+    frames,
+    elements: frames.flatMap(frame => frame.elements || []),
+    ...(!main || frames.some(frame => frame.error) || embeddedCount + 1 > accessibleFrames.length ? {
+      warning: "Snapshot is partial. Embedded frames are unavailable or omitted by Chrome: website permission may be missing, the frame may be restricted or removed. Check embeddedFrame URLs and website access before acting."
+    } : {})
+  };
 }
 
 async function closeAgentTabs() {
@@ -477,41 +510,40 @@ async function shutdown(code) {
 
 async function clickElement(args) {
   const tabId = await resolveTabId(args.tabId);
-  const selector = resolveRef(tabId, args.ref);
-  const action = await executeScript(tabId, `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) throw new Error("Element is no longer present; take a new snapshot");
+  const ref = resolveRef(tabId, args.ref);
+  const action = await executeRef(ref, `(() => {
+    const element = ${refElementSource(ref)};
     element.scrollIntoView({ block: "center", inline: "center" });
     element.click();
-    return { clicked: true, tag: element.tagName.toLowerCase(), text: (element.innerText || element.value || "").trim().slice(0, 200) };
+    return { clicked: true, tag: element.tagName.toLowerCase() };
   })()`);
   return finishInteraction(tabId, action, args);
 }
 
 async function scrollPage(args) {
   const tabId = await resolveTabId(args.tabId);
-  const selector = args.ref ? resolveRef(tabId, args.ref) : "";
+  const ref = args.ref ? resolveRef(tabId, args.ref) : null;
   const deltaX = boundedInteger(args.deltaX, 0, -10000, 10000);
-  const deltaY = boundedInteger(args.deltaY, selector ? 0 : 700, -10000, 10000);
-  const action = await executeScript(tabId, `(() => {
-    const selector = ${JSON.stringify(selector)};
-    const element = selector ? document.querySelector(selector) : null;
-    if (selector && !element) throw new Error("Element is no longer present; take a new snapshot");
+  const deltaY = boundedInteger(args.deltaY, ref ? 0 : 700, -10000, 10000);
+  const code = `(() => {
+    const element = ${ref ? refElementSource(ref) : "null"};
     element?.scrollIntoView({ block: "center", inline: "center" });
     window.scrollBy({ left: ${deltaX}, top: ${deltaY}, behavior: "instant" });
-    return { scrolled: true, target: selector || "window", x: window.scrollX, y: window.scrollY };
-  })()`);
+    return { scrolled: true, target: ${JSON.stringify(args.ref || "window")}, x: window.scrollX, y: window.scrollY };
+  })()`;
+  const action = ref ? await executeRef(ref, code) : await executeScript(tabId, code);
   return finishInteraction(tabId, action, args);
 }
 
 async function fillElement(args) {
   const tabId = await resolveTabId(args.tabId);
-  const selector = resolveRef(tabId, args.ref);
+  const ref = resolveRef(tabId, args.ref);
   const value = requiredPresent(args.value, "value");
-  const action = await executeScript(tabId, `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) throw new Error("Element is no longer present; take a new snapshot");
+  if (String(value)) enteredValues.add(String(value));
+  const action = await executeRef(ref, `(() => {
+    const element = ${refElementSource(ref)};
     const value = ${JSON.stringify(String(value))};
+    globalThis[${JSON.stringify(refStoreKey)}].enteredValues.add(value);
     element.scrollIntoView({ block: "center", inline: "center" });
     element.focus();
     if (element.isContentEditable) {
@@ -537,15 +569,18 @@ async function fillElement(args) {
 
 async function selectElement(args) {
   const tabId = await resolveTabId(args.tabId);
-  const selector = resolveRef(tabId, args.ref);
+  const ref = resolveRef(tabId, args.ref);
   const value = requiredPresent(args.value, "value");
-  const action = await executeScript(tabId, `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
+  if (String(value)) enteredValues.add(String(value));
+  const action = await executeRef(ref, `(() => {
+    const element = ${refElementSource(ref)};
     if (!(element instanceof HTMLSelectElement)) throw new Error("Element is not a select");
-    element.value = ${JSON.stringify(String(value))};
+    const value = ${JSON.stringify(String(value))};
+    globalThis[${JSON.stringify(refStoreKey)}].enteredValues.add(value);
+    element.value = value;
     element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-    return { selected: true, value: element.value };
+    return { selected: true, tag: element.tagName.toLowerCase() };
   })()`);
   return finishInteraction(tabId, action, args);
 }
@@ -553,8 +588,9 @@ async function selectElement(args) {
 async function waitFor(args) {
   const tabId = await resolveTabId(args.tabId);
   const text = args.text == null ? "" : String(args.text);
-  const selector = args.ref ? resolveRef(tabId, args.ref) : String(args.selector || "");
-  if (!text && !selector) throw new Error("wait_for requires text, selector, or ref");
+  const ref = args.ref ? resolveRef(tabId, args.ref) : null;
+  const selector = String(args.selector || "");
+  if (!text && !selector && !ref) throw new Error("wait_for requires text, selector, or ref");
   const state = args.state === "hidden" ? "hidden" : "visible";
   const timeoutMs = boundedInteger(args.timeoutMs, 10000, 100, 30000);
   const startedAt = Date.now();
@@ -562,13 +598,11 @@ async function waitFor(args) {
   while (Date.now() - startedAt < timeoutMs) {
     const remainingMs = timeoutMs - (Date.now() - startedAt);
     try {
-      wait = await executeScript(
-        tabId,
-        waitForSource({ selector, text, state, timeoutMs: Math.min(2000, remainingMs) })
-      );
+      const code = waitForSource({ selector, text, state, timeoutMs: Math.min(2000, remainingMs), ref });
+      wait = ref ? await executeRef(ref, code) : await executeScript(tabId, code);
       if (wait?.matched) break;
     } catch (error) {
-      if (!isTransientFrameError(error)) throw error;
+      if (ref || !isTransientFrameError(error)) throw error;
     }
     if (Date.now() - startedAt < timeoutMs) await delay(50);
   }
@@ -681,6 +715,59 @@ function isTransientFrameError(error) {
   );
 }
 
+// Keep node identity in USER_SCRIPT: a selector must never resolve to a replacement node.
+function refElementSource(ref) {
+  return `(() => {
+    const store = globalThis[${JSON.stringify(refStoreKey)}];
+    const element = store?.snapshotId === ${JSON.stringify(ref.snapshotId)}
+      ? store.elements.get(${JSON.stringify(ref.localRef)}) : null;
+    if (!element?.isConnected || element.ownerDocument !== document) {
+      throw new Error("Stale ref; take a new snapshot");
+    }
+    return element;
+  })()`;
+}
+async function executeRef(ref, code) {
+  let results;
+  try {
+    results = await extension("script.execute", {
+      // Target the document before executing, so a reused frameId cannot receive the action.
+      tabId: ref.tabId, documentIds: [ref.documentId], frameResults: true, world: "USER_SCRIPT",
+      code: `(async () => {
+        try { return await ${code}; } catch (error) {
+          const safeErrors = ["Stale ref; take a new snapshot", "Element cannot be filled", "Element is not a select"];
+          return { bridgeRefError: safeErrors.includes(error?.message) ? error.message : "Element action failed; take a new snapshot" };
+        }
+      })()`
+    });
+  } catch (error) {
+    if (["ENOENT", "ECONNREFUSED"].includes(error?.code)) throw error;
+    throw new Error(`Ref in tab ${ref.tabId}, frame ${ref.frameId} is stale or inaccessible; check website permissions and take a new snapshot`);
+  }
+  const result = Array.isArray(results)
+    ? results.find(item => item.frameId === ref.frameId && item.documentId === ref.documentId) : null;
+  if (!result || result.error) {
+    throw new Error(`Ref in tab ${ref.tabId}, frame ${ref.frameId} is stale or inaccessible; check website permissions and take a new snapshot`);
+  }
+  if (result.result?.bridgeRefError) throw new Error(result.result.bridgeRefError);
+  return result.result;
+}
+function redactEnteredText(value) {
+  for (const entered of enteredValues) value = value.split(entered).join("<redacted>");
+  return value;
+}
+function redactSnapshot(snapshot) {
+  // Page handlers can echo a filled value into labels, body text, or URLs.
+  return {
+    ...snapshot,
+    title: redactEnteredText(snapshot.title || ""),
+    url: redactEnteredText(snapshot.url || ""),
+    text: redactEnteredText(snapshot.text || ""),
+    headings: (snapshot.headings || []).map(item => ({ ...item, text: redactEnteredText(item.text) })),
+    embeds: (snapshot.embeds || []).map(item => ({ ...item, url: redactEnteredText(item.url) })),
+    elements: (snapshot.elements || []).map(item => ({ ...item, name: redactEnteredText(item.name || ""), value: item.value ? "<redacted>" : "" }))
+  };
+}
 async function executeScript(tabId, code, world = "USER_SCRIPT") {
   const results = await extension("script.execute", { tabId, code, world });
   if (!Array.isArray(results) || !results.length) throw new Error("Script returned no frame result");
@@ -702,9 +789,9 @@ async function resolveTabId(value) {
 
 function resolveRef(tabId, value) {
   const ref = requiredString(value, "ref");
-  const selector = refMaps.get(tabId)?.get(ref);
-  if (!selector) throw new Error(`Unknown or stale ref ${ref}; take a new snapshot`);
-  return selector;
+  const target = refMaps.get(tabId)?.get(ref);
+  if (!target) throw new Error(`Unknown or stale ref ${ref} for tab ${tabId}; take a new snapshot`);
+  return target;
 }
 
 function request(method, params = {}, timeoutMs = 30000) {
@@ -809,12 +896,21 @@ class ControlClient {
 
 controlClient = new ControlClient(endpoint);
 
-function snapshotSource(maxElements, maxTextChars, includeRects) {
+function snapshotSource(maxElements, maxTextChars, includeRects, snapshotId) {
   return `(() => {
     const maxElements = ${maxElements};
     const maxTextChars = ${maxTextChars};
     const includeRects = ${includeRects};
-    const sensitive = /pass(word)?|secret|token|authorization|auth|otp|pin|cvv|cvc|card|session|cookie/i;
+    const previous = globalThis[${JSON.stringify(refStoreKey)}];
+    const store = { snapshotId: ${JSON.stringify(snapshotId)}, elements: new Map(), enteredValues: previous?.enteredValues || new Set() };
+    globalThis[${JSON.stringify(refStoreKey)}] = store;
+    const redact = value => {
+      value = String(value || "");
+      for (const entered of store.enteredValues) {
+        if (entered) value = value.split(entered).join("<redacted>");
+      }
+      return value;
+    };
     const rects = new WeakMap();
     const rectFor = element => {
       let rect = rects.get(element);
@@ -829,7 +925,7 @@ function snapshotSource(maxElements, maxTextChars, includeRects) {
       const rect = rectFor(element);
       return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
     };
-    const compact = value => String(value || "").replace(/\\s+/g, " ").trim();
+    const compact = value => redact(value).replace(/\\s+/g, " ").trim();
     const accessibleName = element => {
       const labelledBy = compact(element.getAttribute("aria-labelledby"))
         .split(" ")
@@ -855,37 +951,6 @@ function snapshotSource(maxElements, maxTextChars, includeRects) {
       SELECT: "combobox",
       TEXTAREA: "textbox"
     }[element.tagName] || (element.tagName === "INPUT" ? (element.type || "textbox") : ""));
-    const selectorFor = element => {
-      const escape = value => CSS.escape(String(value));
-      if (element.id) {
-        const selector = "#" + escape(element.id);
-        if (document.querySelectorAll(selector).length === 1) return selector;
-      }
-      for (const name of ["data-testid", "data-test", "name", "aria-label"]) {
-        const value = element.getAttribute(name);
-        if (!value) continue;
-        const selector = element.tagName.toLowerCase() + "[" + name + "=\\"" + escape(value) + "\\"]";
-        try {
-          if (document.querySelectorAll(selector).length === 1) return selector;
-        } catch {}
-      }
-      const parts = [];
-      let current = element;
-      while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.documentElement && parts.length < 10) {
-        let part = current.tagName.toLowerCase();
-        const siblings = current.parentElement
-          ? Array.from(current.parentElement.children).filter(item => item.tagName === current.tagName)
-          : [];
-        if (siblings.length > 1) part += ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")";
-        parts.unshift(part);
-        const selector = parts.join(" > ");
-        try {
-          if (document.querySelectorAll(selector).length === 1) return selector;
-        } catch {}
-        current = current.parentElement;
-      }
-      return parts.join(" > ");
-    };
     const candidates = [];
     for (const element of document.querySelectorAll(
       "a[href],button,input:not([type=hidden]),textarea,select,[contenteditable=true],[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[tabindex]:not([tabindex='-1'])"
@@ -894,14 +959,14 @@ function snapshotSource(maxElements, maxTextChars, includeRects) {
       if (candidates.length >= maxElements) break;
     }
     const elements = candidates.map((element, index) => {
-      const key = [element.name, element.id, element.getAttribute("autocomplete"), element.getAttribute("aria-label")].filter(Boolean).join(" ");
       const type = compact(element.type);
       const rawValue = "value" in element ? compact(element.value) : "";
-      const value = type === "password" || sensitive.test(key) ? (rawValue ? "<redacted>" : "") : rawValue.slice(0, 300);
+      const value = rawValue ? "<redacted>" : "";
+      const ref = "e" + (index + 1);
+      store.elements.set(ref, element);
       const rect = rectFor(element);
       return {
-        ref: "e" + (index + 1),
-        selector: selectorFor(element),
+        ref,
         tag: element.tagName.toLowerCase(),
         role: roleFor(element),
         type,
@@ -930,20 +995,22 @@ function snapshotSource(maxElements, maxTextChars, includeRects) {
       if (headings.length >= 40) break;
     }
     return {
-      title: document.title,
-      url: location.href,
+      title: redact(document.title),
+      url: redact(location.href),
       readyState: document.readyState,
       viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
       text: compact(document.body?.innerText || "").slice(0, maxTextChars),
       headings,
-      elements
+      elements,
+      embeds: Array.from(document.querySelectorAll("iframe,frame"), frame => ({ url: frame.src || "about:blank" }))
     };
   })()`;
 }
 
-function waitForSource({ selector, text, state, timeoutMs }) {
-  return `(() => new Promise(resolve => {
+function waitForSource({ selector, text, state, timeoutMs, ref }) {
+  return `(() => new Promise((resolve, reject) => {
     const selector = ${JSON.stringify(selector)};
+    const refElement = ${ref ? refElementSource(ref) : "null"};
     const expectedText = ${JSON.stringify(text)};
     const targetState = ${JSON.stringify(state)};
     const timeoutMs = ${timeoutMs};
@@ -957,7 +1024,7 @@ function waitForSource({ selector, text, state, timeoutMs }) {
       return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
     };
     const matches = () => {
-      const present = selector
+      const present = refElement ? visible(${ref ? refElementSource(ref) : "null"}) : selector
         ? visible(document.querySelector(selector))
         : (document.body?.innerText || "").includes(expectedText);
       return targetState === "visible" ? present : !present;
@@ -968,8 +1035,14 @@ function waitForSource({ selector, text, state, timeoutMs }) {
       resolve({ matched, state: targetState, elapsedMs: Date.now() - startedAt });
     };
     const check = () => {
-      if (matches()) finish(true);
-      else if (Date.now() - startedAt >= timeoutMs) finish(false);
+      try {
+        if (matches()) finish(true);
+        else if (Date.now() - startedAt >= timeoutMs) finish(false);
+      } catch (error) {
+        clearInterval(interval);
+        observer?.disconnect();
+        reject(error);
+      }
     };
     observer = new MutationObserver(check);
     observer.observe(document.documentElement, {
@@ -1030,6 +1103,15 @@ function snapshotResult(snapshot, metadata = {}) {
     lines.push("elements:");
     for (const element of snapshot.elements) lines.push(`  ${formatElement(element)}`);
   }
+  if (snapshot.warning) lines.push(`warning: ${snapshot.warning}`);
+  for (const frame of snapshot.frames || []) {
+    lines.push(`frame: ${JSON.stringify({ frameId: frame.frameId, documentId: frame.documentId, url: frame.url, error: frame.error })}`);
+    if (frame.frameId !== 0) {
+      if (frame.text) lines.push(`  text: ${JSON.stringify(frame.text)}`);
+      for (const heading of frame.headings || []) lines.push(`  h${heading.level || "?"} ${JSON.stringify(heading.text)}`);
+    }
+    for (const embed of frame.embeds || []) lines.push(`  embeddedFrame: ${JSON.stringify(embed.url)}`);
+  }
   return { content: [{ type: "text", text: lines.join("\n") }] };
 }
 
@@ -1040,6 +1122,7 @@ function formatElement(element) {
     `tag=${element.tag || "unknown"}`
   ];
   if (element.name) parts.push(`name=${JSON.stringify(element.name)}`);
+  if (element.frameId != null) parts.push(`frameId=${element.frameId}`);
   if (element.type) parts.push(`type=${JSON.stringify(element.type)}`);
   if (element.value) parts.push(`value=${JSON.stringify(element.value)}`);
   if (element.checked != null) parts.push(`checked=${element.checked}`);
@@ -1183,7 +1266,7 @@ function friendlyError(error) {
   if (["ENOENT", "ECONNREFUSED"].includes(error?.code)) {
     return `Chromium Bridge is unavailable at ${socketPath}. Start your browser and reload the Chromium Bridge extension.`;
   }
-  return String(error?.message || error);
+  return redactEnteredText(String(error?.message || error));
 }
 
 function writeResult(id, result) {
